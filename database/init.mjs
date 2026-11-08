@@ -15,6 +15,16 @@ export default async function init(client) {
 
   await client.execute('PRAGMA foreign_keys = ON');
   await client.executeMultiple(readFileSync(join(directory, 'schema.sql'), 'utf8'));
+    // ===== 0. 创建普通用户表 =====
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      nickname TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   // ===== 1. 更新 places 表 =====
   const placesInfo = await client.execute('PRAGMA table_info(places)');

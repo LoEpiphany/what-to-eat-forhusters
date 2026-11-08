@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
+import { randomBytes, timingSafeEqual, createHmac, scryptSync } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
@@ -72,6 +72,23 @@ function mapPlace(row, recommendations) {
   };
 }
 
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, 64);
+  return `${salt}:${derivedKey.toString('hex')}`;
+}
+
+function verifyPassword(password, hash) {
+  try {
+    const [salt, key] = hash.split(':');
+    const keyBuffer = Buffer.from(key, 'hex');
+    const derivedKey = scryptSync(password, salt, 64);
+    return timingSafeEqual(keyBuffer, derivedKey);
+  } catch {
+    return false;
+  }
+}
+
 export function createApp(client) {
   const adminUsername = process.env.ADMIN_USERNAME ?? 'jintianchishenme';
   const adminPassword = process.env.ADMIN_PASSWORD ?? 'helloworld';
@@ -95,7 +112,7 @@ export function createApp(client) {
       if (hmac !== expected) return null;
       // 解析出用户信息
       const data = JSON.parse(Buffer.from(base64, 'base64url').toString());
-      return { token, username: data.username };
+      return { token, username: data.username, userId: data.userId, role: data.role };
     } catch {
       return null;
     }
@@ -133,7 +150,37 @@ export function createApp(client) {
         const token = `${payload}.${hmac}`;
         return sendJson(response, 200, { token, user: { username: adminUsername, role: 'admin' }, expiresIn: sessionTtlMs / 1000 });
       }
+            // ===== 用户注册 =====
+      if (request.method === 'POST' && path === '/api/user/register') {
+        const body = await readJsonBody(request);
+        if (!body.username || !body.password) return sendJson(response, 400, { error: '请填写账号密码' });
 
+        const existing = await client.execute({ sql: 'SELECT id FROM users WHERE username = ?', args: [body.username] });
+        if (existing.rows.length > 0) return sendJson(response, 409, { error: '该用户名已被注册' });
+
+        const id = randomBytes(8).toString('hex');
+        await client.execute({
+          sql: 'INSERT INTO users (id, username, password_hash, nickname) VALUES (?, ?, ?, ?)',
+          args: [id, body.username, hashPassword(body.password), body.nickname || body.username]
+        });
+        return sendJson(response, 201, { ok: true, message: '注册成功' });
+      }
+
+      // ===== 用户登录 =====
+      if (request.method === 'POST' && path === '/api/user/login') {
+        const body = await readJsonBody(request);
+        const res = await client.execute({ sql: 'SELECT * FROM users WHERE username = ?', args: [body.username] });
+        const user = res.rows[0];
+
+        if (!user || !verifyPassword(body.password, user.password_hash)) {
+          return sendJson(response, 401, { error: '用户名或密码错误' });
+        }
+
+        const payload = Buffer.from(JSON.stringify({ userId: user.id, username: user.username, role: 'user', exp: Date.now() + sessionTtlMs })).toString('base64url');
+        const hmac = createHmac('sha256', sessionSecret).update(payload).digest('base64url');
+        
+        return sendJson(response, 200, { token: `${payload}.${hmac}`, user: { username: user.username, nickname: user.nickname } });
+      }
       if (path.startsWith('/api/admin/')) {
         const session = sessionFor(request);
         if (!session) return sendJson(response, 401, { error: 'unauthorized', message: '请先以管理员身份登录' });

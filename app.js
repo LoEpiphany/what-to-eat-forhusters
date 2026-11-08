@@ -3719,3 +3719,156 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+// ================= 普通用户登录/注册系统 =================
+
+// 1. 初始化用户状态（塞到最前面的 state 对象里，或者直接挂在 window 上也行，这里为了简单直接放外面）
+let userToken = localStorage.getItem('hustmap-user-token') || '';
+let userInfo = JSON.parse(localStorage.getItem('hustmap-user-info') || 'null');
+
+// 2. 在页面右上角动态注入一个按钮
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.querySelector('.nav');
+  if (!nav) return;
+  
+  // 创建登录按钮
+  const userBtn = document.createElement('button');
+  userBtn.id = 'user-login-btn';
+  userBtn.className = 'secondary';
+  userBtn.style.marginLeft = '12px';
+  userBtn.textContent = userToken && userInfo ? `👤 ${userInfo.nickname || userInfo.username}` : '👤 登录 / 注册';
+  
+  // 挂载到导航栏最后
+  nav.appendChild(userBtn);
+
+  userBtn.addEventListener('click', () => {
+    if (userToken && userInfo) {
+      if (confirm(`当前已登录：${userInfo.username}\n是否退出登录？`)) {
+        logoutUser();
+      }
+    } else {
+      openUserModal();
+    }
+  });
+});
+
+// 3. 退出登录
+function logoutUser() {
+  userToken = '';
+  userInfo = null;
+  localStorage.removeItem('hustmap-user-token');
+  localStorage.removeItem('hustmap-user-info');
+  const btn = document.getElementById('user-login-btn');
+  if (btn) btn.textContent = '👤 登录 / 注册';
+  toast('已退出登录');
+}
+
+// 4. 打开登录/注册弹窗
+function openUserModal() {
+  // 如果已经有弹窗，先删掉
+  document.getElementById('user-modal-overlay')?.remove();
+
+  const html = `
+    <div class="admin-modal-overlay" id="user-modal-overlay">
+      <div class="admin-modal" style="max-width: 360px;">
+        <h3 style="margin-bottom: 16px;" id="user-modal-title">登录账号</h3>
+        
+        <form id="user-auth-form" class="admin-modal-form">
+          <label>用户名 <input name="username" required placeholder="请输入用户名"></label>
+          <label>密码 <input name="password" type="password" required placeholder="请输入密码"></label>
+          
+          <div style="margin-top: 12px; font-size: 13px; text-align: center; color: var(--muted);">
+            <span id="user-toggle-text">还没有账号？</span>
+            <a href="javascript:void(0)" id="user-toggle-mode" style="color: var(--red); text-decoration: underline;">去注册</a>
+          </div>
+
+          <div class="admin-modal-actions" style="margin-top: 20px;">
+            <button type="button" id="user-modal-cancel">取消</button>
+            <button type="submit" class="primary" id="user-submit-btn">登录</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', html);
+  
+  let isRegisterMode = false;
+  const form = document.getElementById('user-auth-form');
+  const title = document.getElementById('user-modal-title');
+  const toggleText = document.getElementById('user-toggle-text');
+  const toggleLink = document.getElementById('user-toggle-mode');
+  const submitBtn = document.getElementById('user-submit-btn');
+  const overlay = document.getElementById('user-modal-overlay');
+
+  document.getElementById('user-modal-cancel').onclick = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  // 切换登录/注册模式
+  toggleLink.onclick = () => {
+    isRegisterMode = !isRegisterMode;
+    if (isRegisterMode) {
+      title.textContent = '注册新账号';
+      toggleText.textContent = '已经有账号了？';
+      toggleLink.textContent = '去登录';
+      submitBtn.textContent = '注册';
+    } else {
+      title.textContent = '登录账号';
+      toggleText.textContent = '还没有账号？';
+      toggleLink.textContent = '去注册';
+      submitBtn.textContent = '登录';
+    }
+  };
+
+  // 提交表单
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const data = new FormData(form);
+    const body = {
+      username: data.get('username').trim(),
+      password: data.get('password')
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '处理中...';
+
+    const endpoint = isRegisterMode ? '/api/user/register' : '/api/user/login';
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const resData = await res.json();
+
+      if (!res.ok) throw new Error(resData.message || resData.error || '请求失败');
+
+      if (isRegisterMode) {
+        toast('注册成功！请登录');
+        // 注册成功后自动切回登录界面，并填入刚才的账号
+        toggleLink.click();
+        form.elements.username.value = body.username;
+        form.elements.password.value = '';
+      } else {
+        // 登录成功
+        userToken = resData.token;
+        userInfo = resData.user;
+        localStorage.setItem('hustmap-user-token', userToken);
+        localStorage.setItem('hustmap-user-info', JSON.stringify(userInfo));
+        
+        toast(`欢迎回来，${userInfo.nickname || userInfo.username}！`);
+        
+        // 更新右上角按钮文字
+        const btn = document.getElementById('user-login-btn');
+        if (btn) btn.textContent = `👤 ${userInfo.nickname || userInfo.username}`;
+        
+        overlay.remove();
+      }
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = isRegisterMode ? '注册' : '登录';
+    }
+  };
+}
