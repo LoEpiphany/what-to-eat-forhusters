@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: lindacoca-map
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /var/data/meishi.sqlite
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: lindacoca-data
+      mountPath: /var/data
+      sizeGB: 1
