@@ -19,7 +19,7 @@ const originalServer = createApp(client);
 const app = express();
 
 // 5. 核心魔法：拦截所有请求，直接丢给你的原生 Server 去处理
-app.all('*', (req, res) => {
+app.all(/.*/, (req, res) => {
   originalServer.emit('request', req, res);
 });
 
