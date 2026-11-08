@@ -8,6 +8,10 @@
 
 这是一个基于 **Node.js + Leaflet + Turso (云端 SQLite)** 的全端觅食推荐与评分系统。支持地图交互、智能推荐、大众打分与标签，以及完善的后台管理功能。
 
+作为初步的还有很多功能待完善的项目，我们还未打包成软件。那么可以通过本地直接跑和进入网址的方式，连接的都是云数据库，因此显示和功能上都没有太大差别。
+
+欢迎大家直接访问测试：https://eat-in-hust.dns.navy/
+
 ---
 
 ## 📁 一、项目目录结构与文件职责
@@ -48,9 +52,10 @@ TURSO_DATABASE_URL=libsql://你的数据库地址.turso.io
 TURSO_AUTH_TOKEN=你的数据库Token
 
 # 管理员账号密码（后台登录用）
-ADMIN_USERNAME=jintianchishenme
-ADMIN_PASSWORD=helloworld
-JWT_SECRET=hust-map-secret-key
+ADMIN_USERNAME=xxxxx//都找负责人，也就是我要哦
+ADMIN_PASSWORD=xxxxx
+JWT_SECRET=xxxxx
+
 ```
 
 ### 3. 启动本地服务（具体步骤）
