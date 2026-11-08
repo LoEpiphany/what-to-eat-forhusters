@@ -1,6 +1,6 @@
 // cloud-functions/[[default]].mjs
 import express from 'express';
-import { createClient } from '@libsql/client';
+import { createClient } from '@libsql/client/web';
 import { createApp } from '../server/app.mjs';
 
 // 1. 初始化数据库连接
