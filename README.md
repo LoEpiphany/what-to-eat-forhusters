@@ -48,9 +48,10 @@ TURSO_DATABASE_URL=libsql://你的数据库地址.turso.io
 TURSO_AUTH_TOKEN=你的数据库Token
 
 # 管理员账号密码（后台登录用）
-ADMIN_USERNAME=jintianchishenme
-ADMIN_PASSWORD=helloworld
-JWT_SECRET=hust-map-secret-key
+ADMIN_USERNAME=xxxxx//都找负责人，也就是我要哦
+ADMIN_PASSWORD=xxxxx
+JWT_SECRET=xxxxx
+
 ```
 
 ### 3. 启动本地服务（具体步骤）
