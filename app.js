@@ -21,6 +21,8 @@ const state = {
   selectedDishes: new Set(),
 };
 
+window.getHustPlaces = () => state.places;
+
 const calibrationStorageKey = 'hustmap-calibration-draft-v2';
 const feedbackStorageKey = 'hustmap-feedback-v1';
 
@@ -714,6 +716,7 @@ async function loadPlaces() {
         renderMap();
         renderHomeFeed();
         populateFeedbackPlaces();
+        window.dispatchEvent(new CustomEvent('hustmap:data-loaded', { detail: { places: state.places } }));
         return;
       }
     }
@@ -744,6 +747,7 @@ async function loadPlaces() {
   renderMap();
   renderHomeFeed();
   populateFeedbackPlaces();
+  window.dispatchEvent(new CustomEvent('hustmap:data-loaded', { detail: { places: state.places } }));
 }
  
 
@@ -771,6 +775,7 @@ function go(view, { resetScroll = true, updateHistory = true } = {}) {
   if (view === 'review') renderReview();
   if (view === 'dishes') renderDishes(); 
   if (view === 'forum') window.renderForumPage?.();
+  if (view === 'agent') window.renderAgentPage?.();
   if (view === 'home') {
     renderMap();
     setTimeout(() => leafletMap?.invalidateSize(), 0);
@@ -3358,11 +3363,11 @@ setupPage();
 updateAdminModeUI(); // 初始化管理员按钮状态
 const initialView = location.hash.slice(1);
 if (initialView === 'map') scrollToMap('auto');
-else if (['home', 'admin', 'feedback', 'review', 'forum'].includes(initialView)) go(initialView, { updateHistory: false });
+else if (['home', 'admin', 'feedback', 'review', 'forum', 'agent'].includes(initialView)) go(initialView, { updateHistory: false });
 window.addEventListener('popstate', () => {
   const view = location.hash.slice(1);
   if (view === 'map') scrollToMap('auto');
-  else go(['home', 'results', 'detail', 'admin', 'feedback', 'review', 'forum'].includes(view) ? view : 'home', { updateHistory: false });
+  else go(['home', 'results', 'detail', 'admin', 'feedback', 'review', 'forum', 'agent'].includes(view) ? view : 'home', { updateHistory: false });
 });
 loadPlaces();
 // ================= 管理员图谱编辑逻辑 =================
