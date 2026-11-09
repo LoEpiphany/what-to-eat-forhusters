@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="./forum.css">
   <title>华科觅食 · 今天吃什么</title>
 
   <style>
@@ -1906,6 +1907,7 @@
     </button>
     <nav class="nav">
       <button class="ghost" data-go="home" aria-current="page">推荐首页</button>
+      <button class="ghost forum-nav-link" data-go="forum">校园论坛</button>
       <button class="ghost" data-go="admin">全部地点</button>
       <button class="ghost" data-go="dishes">美食图谱</button>
       <button class="ghost" data-go="rating">大家评</button>
@@ -3942,6 +3944,7 @@
       <div id="rating-list" class="adminlist" style="max-height: none;"></div>
     </div>
   </section>
+  <section id="forum" class="view" aria-labelledby="forum-title"></section>
 </main>
 
 <div id="toast" class="toast"></div>
@@ -3951,6 +3954,7 @@
 </button>
 <script src="./libs/leaflet/leaflet.js"></script>
 <script src="./app.js" defer></script>
+<script src="./forum.js" defer></script>
 <style>
   /* 强制将首页改为上下堆叠布局 */
   .home-layout-vertical {
