@@ -1,7 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-
-const forumSchemaSql = readFileSync(new URL('../database/schema.sql', import.meta.url), 'utf8');
+import { FORUM_INDEX_SQL, FORUM_SCHEMA_SQL } from './forum-schema.mjs';
 
 const FORUM_CATEGORIES = new Set(['review', 'partner', 'ask', 'campus', 'market']);
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'privacy', 'other']);
@@ -166,7 +164,20 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
         if (typeof client.executeMultiple !== 'function') {
           throw new Error('数据库客户端不支持论坛自动迁移');
         }
-        await client.executeMultiple(forumSchemaSql);
+        await client.executeMultiple(FORUM_SCHEMA_SQL);
+        const postColumns = await client.execute('PRAGMA table_info(forum_posts)');
+        if (!postColumns.rows.some(column => column.name === 'status')) {
+          await client.execute("ALTER TABLE forum_posts ADD COLUMN status TEXT NOT NULL DEFAULT 'published'");
+        }
+        const commentColumns = await client.execute('PRAGMA table_info(forum_comments)');
+        if (!commentColumns.rows.some(column => column.name === 'status')) {
+          await client.execute("ALTER TABLE forum_comments ADD COLUMN status TEXT NOT NULL DEFAULT 'published'");
+        }
+        if (!commentColumns.rows.some(column => column.name === 'updated_at')) {
+          await client.execute('ALTER TABLE forum_comments ADD COLUMN updated_at TEXT');
+          await client.execute('UPDATE forum_comments SET updated_at = created_at WHERE updated_at IS NULL');
+        }
+        await client.executeMultiple(FORUM_INDEX_SQL);
         schemaReady = true;
       })().catch(error => {
         schemaPromise = null;

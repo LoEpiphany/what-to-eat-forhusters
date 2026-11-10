@@ -228,3 +228,42 @@ test('论坛接口首次访问会自动补建缺失的数据库表', async () =>
     database.close();
   }
 });
+
+test('论坛自动迁移能补齐旧建表脚本缺少的字段', async () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL, nickname TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE forum_posts (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, category TEXT NOT NULL,
+      title TEXT NOT NULL, content TEXT NOT NULL, location TEXT, tags TEXT,
+      pinned INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE forum_comments (
+      id TEXT PRIMARY KEY, post_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      content TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  const server = createApp(database, {
+    adminUsername: 'forum-admin',
+    adminPassword: 'forum-admin-password',
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const feed = await jsonRequest(`${base}/api/forum/posts`);
+    assert.equal(feed.response.status, 200);
+    const postColumns = database.prepare('PRAGMA table_info(forum_posts)').all().map(row => row.name);
+    const commentColumns = database.prepare('PRAGMA table_info(forum_comments)').all().map(row => row.name);
+    assert.ok(postColumns.includes('status'));
+    assert.ok(commentColumns.includes('status'));
+    assert.ok(commentColumns.includes('updated_at'));
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    database.close();
+  }
+});
