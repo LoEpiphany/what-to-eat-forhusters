@@ -31,6 +31,8 @@
     comments: [],
     composerCategory: 'review',
     editingPost: null,
+    composerImages: [],
+    imageProcessing: false,
     reportTarget: null,
     adminReportFilter: 'pending',
     searchTimer: null,
@@ -154,6 +156,134 @@
 
   function commentCount(post) {
     return Number(post.commentCount) || 0;
+  }
+
+  function forumImagesMarkup(images, className = '') {
+    if (!Array.isArray(images) || !images.length) return '';
+    return `
+      <div class="forum-image-grid ${className} forum-image-count-${Math.min(images.length, 3)}">
+        ${images.map((image, index) => `
+          <button class="forum-image-button" type="button" data-forum-image-preview aria-label="查看第 ${index + 1} 张图片">
+            <img src="${escapeHtml(image.dataUrl)}" alt="${escapeHtml(image.alt || `帖子图片 ${index + 1}`)}" loading="lazy">
+          </button>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function ensureImagePreview() {
+    let backdrop = document.getElementById('forum-image-backdrop');
+    if (backdrop) return backdrop;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="forum-image-preview" id="forum-image-backdrop" hidden role="dialog" aria-modal="true" aria-label="图片预览">
+        <button class="forum-image-preview-close" type="button" data-forum-close-image aria-label="关闭图片预览">×</button>
+        <img id="forum-image-preview-img" alt="">
+      </div>
+    `);
+    backdrop = document.getElementById('forum-image-backdrop');
+    backdrop.addEventListener('click', event => {
+      if (event.target === backdrop || event.target.closest('[data-forum-close-image]')) closeImagePreview();
+    });
+    return backdrop;
+  }
+
+  function openImagePreview(image) {
+    if (!image?.src) return;
+    const backdrop = ensureImagePreview();
+    const preview = document.getElementById('forum-image-preview-img');
+    preview.src = image.src;
+    preview.alt = image.alt || '帖子图片';
+    backdrop.hidden = false;
+    document.body.classList.add('forum-modal-open');
+    backdrop.querySelector('[data-forum-close-image]')?.focus();
+  }
+
+  function closeImagePreview() {
+    const backdrop = document.getElementById('forum-image-backdrop');
+    if (!backdrop) return;
+    backdrop.hidden = true;
+    const preview = document.getElementById('forum-image-preview-img');
+    if (preview) preview.removeAttribute('src');
+    if (
+      document.getElementById('forum-thread-backdrop')?.hidden !== false
+      && document.getElementById('forum-compose-backdrop')?.hidden !== false
+      && document.getElementById('forum-report-backdrop')?.hidden !== false
+    ) document.body.classList.remove('forum-modal-open');
+  }
+
+  function renderComposerImages() {
+    const host = document.getElementById('forum-composer-images');
+    const count = document.getElementById('forum-image-count');
+    if (!host) return;
+    if (count) count.textContent = `${state.composerImages.length}/3`;
+    host.innerHTML = state.composerImages.map((image, index) => `
+      <div class="forum-composer-image">
+        <img src="${escapeHtml(image.dataUrl)}" alt="${escapeHtml(image.alt || `待发布图片 ${index + 1}`)}">
+        <button type="button" data-forum-remove-image="${index}" aria-label="移除第 ${index + 1} 张图片">×</button>
+      </div>
+    `).join('');
+  }
+
+  async function compressForumImage(file) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      throw new Error('仅支持 JPG、PNG 或 WebP 图片');
+    }
+    if (file.size > 10 * 1024 * 1024) throw new Error('原始图片不能超过 10MB');
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      throw new Error('浏览器无法读取这张图片');
+    }
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) {
+      bitmap.close?.();
+      throw new Error('图片压缩失败，请更换浏览器重试');
+    }
+    let maxDimension = 1600;
+    let quality = 0.84;
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/webp', quality);
+        if (dataUrl.length <= 780_000) {
+          return { dataUrl, alt: file.name.replace(/\.[^.]+$/, '').slice(0, 80) };
+        }
+        maxDimension = Math.round(maxDimension * 0.82);
+        quality = Math.max(0.5, quality - 0.07);
+      }
+    } finally {
+      bitmap.close?.();
+    }
+    throw new Error('图片压缩后仍然过大，请选择更小的图片');
+  }
+
+  async function handleImageSelection(event) {
+    const files = [...(event.target.files || [])];
+    event.target.value = '';
+    if (!files.length || state.imageProcessing) return;
+    const remaining = 3 - state.composerImages.length;
+    if (remaining <= 0) return showToast('每个帖子最多上传 3 张图片');
+    state.imageProcessing = true;
+    const uploadLabel = document.getElementById('forum-upload-label');
+    if (uploadLabel) uploadLabel.textContent = '正在压缩图片…';
+    try {
+      for (const file of files.slice(0, remaining)) {
+        state.composerImages.push(await compressForumImage(file));
+        renderComposerImages();
+      }
+      if (files.length > remaining) showToast('已达到 3 张图片上限');
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      state.imageProcessing = false;
+      if (uploadLabel) uploadLabel.textContent = '选择图片';
+    }
   }
 
   function renderPage() {
@@ -311,6 +441,7 @@
         </div>
         <h3>${escapeHtml(post.title)}</h3>
         <p class="forum-post-text">${escapeHtml(post.content)}</p>
+        ${forumImagesMarkup(post.images, 'forum-post-images')}
         <div class="forum-post-tags">${(post.tags || []).map(tag => `<span># ${escapeHtml(tag)}</span>`).join('')}</div>
         <div class="forum-post-actions">
           <button class="forum-post-action" type="button" data-forum-action="like" aria-pressed="${Boolean(post.liked)}" aria-label="点赞，当前 ${post.likes || 0} 个赞">
@@ -433,6 +564,12 @@
       if (event.target.closest('[data-forum-compose]')) return openComposer();
       if (event.target.closest('[data-forum-retry]')) return loadFeed();
       if (event.target.closest('[data-forum-load-more]')) return loadFeed({ append: true });
+      const imageButton = event.target.closest('[data-forum-image-preview]');
+      if (imageButton) {
+        event.stopPropagation();
+        const image = imageButton.querySelector('img');
+        return openImagePreview({ src: image?.src, alt: image?.alt });
+      }
       const action = event.target.closest('[data-forum-action]');
       const postElement = event.target.closest('[data-post-id]');
       if (!postElement) return;
@@ -543,6 +680,15 @@
               <span>正文内容 <small><b data-forum-content-count>0</b>/3000</small></span>
               <textarea name="content" required minlength="10" maxlength="3000" placeholder="补充具体时间、价格、口味或你的真实感受…"></textarea>
             </label>
+            <div class="forum-form-field forum-image-field">
+              <span>帖子图片 <small id="forum-image-count">0/3</small></span>
+              <div class="forum-upload-zone">
+                <label class="forum-upload-button" for="forum-image-input" id="forum-upload-label">选择图片</label>
+                <span>最多 3 张，支持 JPG、PNG、WebP，上传前会自动压缩</span>
+                <input id="forum-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+              </div>
+              <div class="forum-composer-images" id="forum-composer-images"></div>
+            </div>
             <label class="forum-form-field">
               <span>话题标签 <small>用中英文逗号分隔，最多 5 个</small></span>
               <input name="tags" maxlength="120" placeholder="例如：东一食堂, 人均15, 求搭子">
@@ -564,6 +710,13 @@
     form.elements.content.addEventListener('input', event => {
       form.querySelector('[data-forum-content-count]').textContent = event.target.value.length;
     });
+    form.querySelector('#forum-image-input').addEventListener('change', handleImageSelection);
+    form.querySelector('#forum-composer-images').addEventListener('click', event => {
+      const remove = event.target.closest('[data-forum-remove-image]');
+      if (!remove) return;
+      state.composerImages.splice(Number(remove.dataset.forumRemoveImage), 1);
+      renderComposerImages();
+    });
     form.addEventListener('submit', submitPost);
     backdrop.addEventListener('click', event => {
       if (event.target === backdrop || event.target.closest('[data-forum-close-compose]')) closeComposer();
@@ -583,6 +736,13 @@
     form.elements.content.value = post?.content || '';
     form.elements.location.value = post?.location || '';
     form.elements.tags.value = (post?.tags || []).join(', ');
+    state.composerImages = (post?.images || []).map(image => ({
+      id: image.id,
+      dataUrl: image.dataUrl,
+      alt: image.alt || '',
+      dataMissing: !image.dataUrl,
+    })).filter(image => image.dataUrl);
+    renderComposerImages();
     form.querySelector('[data-forum-title-count]').textContent = String(post?.title?.length || 0);
     form.querySelector('[data-forum-content-count]').textContent = String(post?.content?.length || 0);
     document.getElementById('forum-compose-title').textContent = post ? '编辑帖子' : '分享一件校园新鲜事';
@@ -595,6 +755,7 @@
   function closeComposer() {
     document.getElementById('forum-compose-backdrop').hidden = true;
     state.editingPost = null;
+    state.composerImages = [];
     if (document.getElementById('forum-thread-backdrop')?.hidden !== false) document.body.classList.remove('forum-modal-open');
   }
 
@@ -609,6 +770,7 @@
       content: String(data.get('content') || '').trim(),
       location: String(data.get('location') || '').trim(),
       tags: String(data.get('tags') || '').split(/[,，]/).map(tag => tag.trim()).filter(Boolean).slice(0, 5),
+      images: state.composerImages.map(image => ({ dataUrl: image.dataUrl, alt: image.alt || '' })),
     };
     if (payload.title.length < 4 || payload.content.length < 10) {
       showToast('标题至少 4 个字，正文至少 10 个字');
@@ -706,6 +868,7 @@
         </div>
         <h2 id="forum-thread-title">${escapeHtml(post.title)}</h2>
         <div class="forum-thread-content">${escapeHtml(post.content)}</div>
+        ${forumImagesMarkup(post.images, 'forum-thread-images')}
         <div class="forum-post-tags">${(post.tags || []).map(tag => `<span># ${escapeHtml(tag)}</span>`).join('')}</div>
         <div class="forum-thread-actions">
           <button class="forum-post-action" type="button" data-thread-action="like" aria-pressed="${Boolean(post.liked)}">
@@ -766,6 +929,12 @@
     const commentAction = event.target.closest('[data-comment-action]');
     const post = state.activePost;
     if (!post) return;
+    const imageButton = event.target.closest('[data-forum-image-preview]');
+    if (imageButton) {
+      event.stopPropagation();
+      const image = imageButton.querySelector('img');
+      return openImagePreview({ src: image?.src, alt: image?.alt });
+    }
     if (action) {
       const type = action.dataset.threadAction;
       if (type === 'login') return requestLogin();
@@ -1085,6 +1254,7 @@
 
   function handleEscape(event) {
     if (event.key !== 'Escape') return;
+    if (!document.getElementById('forum-image-backdrop')?.hidden) return closeImagePreview();
     if (!document.getElementById('forum-report-backdrop')?.hidden) return closeReportModal();
     if (!document.getElementById('forum-thread-backdrop')?.hidden) return closeThread();
     if (!document.getElementById('forum-compose-backdrop')?.hidden) closeComposer();

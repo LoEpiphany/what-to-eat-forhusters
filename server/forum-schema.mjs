@@ -54,6 +54,15 @@ CREATE TABLE IF NOT EXISTS forum_comment_likes (
   PRIMARY KEY (comment_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS forum_post_images (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+  data_url TEXT NOT NULL,
+  alt TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS forum_reports (
   id TEXT PRIMARY KEY,
   post_id TEXT REFERENCES forum_posts(id) ON DELETE CASCADE,
@@ -79,6 +88,8 @@ CREATE INDEX IF NOT EXISTS forum_comments_post
   ON forum_comments (post_id, status, created_at);
 CREATE INDEX IF NOT EXISTS forum_comments_user
   ON forum_comments (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS forum_post_images_post
+  ON forum_post_images (post_id, sort_order);
 CREATE INDEX IF NOT EXISTS forum_post_likes_user
   ON forum_post_likes (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS forum_post_bookmarks_user

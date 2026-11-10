@@ -5,6 +5,9 @@ const FORUM_CATEGORIES = new Set(['review', 'partner', 'ask', 'campus', 'market'
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'privacy', 'other']);
 const POST_STATUSES = new Set(['published', 'hidden']);
 const COMMENT_STATUSES = new Set(['published', 'hidden']);
+const MAX_POST_IMAGES = 3;
+const MAX_IMAGE_DATA_URL_LENGTH = 800_000;
+const MAX_IMAGE_TOTAL_LENGTH = 2_400_000;
 
 const POST_SELECT = `
   SELECT
@@ -84,6 +87,7 @@ function mapForumPost(row, viewerId = '') {
     liked: Boolean(row.liked),
     bookmarked: Boolean(row.bookmarked),
     isOwner: Boolean(viewerId && row.user_id === viewerId),
+    images: [],
     author: {
       id: row.user_id,
       name: row.author_name || row.author_username || '校园同学',
@@ -118,7 +122,30 @@ function validatePost(body) {
   if (!FORUM_CATEGORIES.has(category)) return { error: '请选择有效的论坛频道' };
   if (title.length < 4 || title.length > 80) return { error: '标题长度需要在 4 到 80 个字符之间' };
   if (content.length < 10 || content.length > 3000) return { error: '正文长度需要在 10 到 3000 个字符之间' };
-  return { value: { category, title, content, location, tags: parseTags(body.tags) } };
+  const rawImages = body.images === undefined ? [] : body.images;
+  if (!Array.isArray(rawImages) || rawImages.length > MAX_POST_IMAGES) {
+    return { error: `帖子最多上传 ${MAX_POST_IMAGES} 张图片` };
+  }
+  const images = [];
+  let totalLength = 0;
+  for (const item of rawImages) {
+    const dataUrl = String(item?.dataUrl || '');
+    if (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) {
+      return { error: '图片格式仅支持 JPG、PNG 或 WebP' };
+    }
+    if (dataUrl.length > MAX_IMAGE_DATA_URL_LENGTH) {
+      return { error: '单张图片过大，请重新选择或压缩后上传' };
+    }
+    totalLength += dataUrl.length;
+    images.push({
+      dataUrl,
+      alt: String(item?.alt || '').trim().slice(0, 80),
+    });
+  }
+  if (totalLength > MAX_IMAGE_TOTAL_LENGTH) {
+    return { error: '图片总大小过大，请减少图片数量' };
+  }
+  return { value: { category, title, content, location, tags: parseTags(body.tags), images } };
 }
 
 function decodeId(raw) {
@@ -222,12 +249,49 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
     return session;
   }
 
+  async function attachImages(posts) {
+    if (!posts.length) return posts;
+    const placeholders = posts.map(() => '?').join(', ');
+    const result = await client.execute({
+      sql: `SELECT id, post_id, data_url, alt, sort_order
+            FROM forum_post_images
+            WHERE post_id IN (${placeholders})
+            ORDER BY post_id, sort_order, created_at`,
+      args: posts.map(post => post.id),
+    });
+    const grouped = new Map();
+    for (const row of result.rows) {
+      const images = grouped.get(row.post_id) || [];
+      images.push({
+        id: row.id,
+        dataUrl: row.data_url,
+        alt: row.alt || '',
+        sortOrder: Number(row.sort_order) || 0,
+      });
+      grouped.set(row.post_id, images);
+    }
+    return posts.map(post => ({ ...post, images: grouped.get(post.id) || [] }));
+  }
+
+  async function replacePostImages(postId, images) {
+    await client.execute({ sql: 'DELETE FROM forum_post_images WHERE post_id = ?', args: [postId] });
+    for (const [index, image] of images.entries()) {
+      await client.execute({
+        sql: `INSERT INTO forum_post_images (id, post_id, data_url, alt, sort_order)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [createId('image'), postId, image.dataUrl, image.alt || null, index],
+      });
+    }
+  }
+
   async function getPost(id, viewerId = '') {
     const result = await client.execute({
       sql: `${POST_SELECT} WHERE p.id = ? AND p.status = 'published'`,
       args: [viewerId, viewerId, viewerId, viewerId, id],
     });
-    return result.rows[0] ? mapForumPost(result.rows[0], viewerId) : null;
+    if (!result.rows[0]) return null;
+    const [post] = await attachImages([mapForumPost(result.rows[0], viewerId)]);
+    return post;
   }
 
   async function listPosts(request, response, url) {
@@ -299,8 +363,9 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
     const statRow = stats.rows[0] || {};
     const total = Number(count.rows[0]?.count) || 0;
     const categories = Object.fromEntries(categoryStats.rows.map(row => [row.category, Number(row.count) || 0]));
+    const posts = await attachImages(list.rows.map(row => mapForumPost(row, viewer.viewerId)));
     return sendJson(response, 200, {
-      posts: list.rows.map(row => mapForumPost(row, viewer.viewerId)),
+      posts,
       pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
       stats: {
         topics: Number(statRow.topic_count) || 0,
@@ -330,7 +395,7 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
   async function createPost(request, response) {
     const viewer = requireUser(request, response);
     if (!viewer) return;
-    const body = await readJsonBody(request, 16 * 1024);
+    const body = await readJsonBody(request, 3 * 1024 * 1024);
     const validated = validatePost(body);
     if (validated.error) return sendJson(response, 400, { error: 'invalid_post', message: validated.error });
     const data = validated.value;
@@ -341,6 +406,7 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [id, viewer.viewerId, data.category, data.title, data.content, data.location || null, JSON.stringify(data.tags)],
     });
+    await replacePostImages(id, data.images);
     return sendJson(response, 201, { post: await getPost(id, viewer.viewerId) });
   }
 
@@ -357,7 +423,7 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
     if (!viewer.isAdmin && existing.user_id !== viewer.viewerId) {
       return sendJson(response, 403, { error: 'forbidden', message: '只能编辑自己发布的帖子' });
     }
-    const body = await readJsonBody(request, 16 * 1024);
+    const body = await readJsonBody(request, 3 * 1024 * 1024);
     const validated = validatePost(body);
     if (validated.error) return sendJson(response, 400, { error: 'invalid_post', message: validated.error });
     const data = validated.value;
@@ -367,6 +433,7 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
             WHERE id = ?`,
       args: [data.category, data.title, data.content, data.location || null, JSON.stringify(data.tags), postId],
     });
+    await replacePostImages(postId, data.images);
     return sendJson(response, 200, { post: await getPost(postId, viewer.viewerId) });
   }
 

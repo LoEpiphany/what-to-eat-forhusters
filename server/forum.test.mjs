@@ -63,6 +63,20 @@ test('论坛支持服务端发帖、评论、点赞、收藏、举报与管理�
     });
     assert.equal(invalidPost.response.status, 400);
 
+    const invalidImage = await jsonRequest(`${base}/api/forum/posts`, {
+      method: 'POST',
+      headers: auth(aliceToken, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        category: 'review',
+        title: '非法图片格式测试帖子',
+        content: '这是一段长度足够但图片格式非法的测试正文。',
+        images: [{ dataUrl: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }],
+      }),
+    });
+    assert.equal(invalidImage.response.status, 400);
+
+    const imageDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
     const created = await jsonRequest(`${base}/api/forum/posts`, {
       method: 'POST',
       headers: auth(aliceToken, { 'Content-Type': 'application/json' }),
@@ -72,6 +86,7 @@ test('论坛支持服务端发帖、评论、点赞、收藏、举报与管理�
         content: '今天尝试了新的套餐，价格和分量都不错，适合晚课后快速用餐。',
         location: '东一食堂 · 2F',
         tags: ['东一食堂', '晚餐'],
+        images: [{ dataUrl: imageDataUrl, alt: '晚餐实拍' }],
       }),
     });
     assert.equal(created.response.status, 201);
@@ -79,11 +94,14 @@ test('论坛支持服务端发帖、评论、点赞、收藏、举报与管理�
     assert.equal(created.body.post.author.name, 'alice_forum同学');
     assert.deepEqual(created.body.post.tags, ['东一食堂', '晚餐']);
     assert.equal(created.body.post.isOwner, true);
+    assert.equal(created.body.post.images.length, 1);
+    assert.equal(created.body.post.images[0].alt, '晚餐实拍');
 
     const list = await jsonRequest(`${base}/api/forum/posts?category=review&sort=latest`);
     assert.equal(list.response.status, 200);
     assert.equal(list.body.posts.length, 1);
     assert.equal(list.body.posts[0].commentCount, 0);
+    assert.equal(list.body.posts[0].images.length, 1);
     assert.equal(list.body.stats.topics, 1);
 
     const aliceLike = await jsonRequest(`${base}/api/forum/posts/${postId}/like`, {
@@ -123,6 +141,7 @@ test('论坛支持服务端发帖、评论、点赞、收藏、举报与管理�
     assert.equal(detail.body.post.liked, true);
     assert.equal(detail.body.post.bookmarked, false);
     assert.equal(detail.body.comments.length, 1);
+    assert.equal(detail.body.post.images[0].dataUrl, imageDataUrl);
     assert.equal(detail.body.comments[0].isOwner, true);
 
     const forbiddenDelete = await jsonRequest(`${base}/api/forum/posts/${postId}`, {
