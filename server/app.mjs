@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual, createHmac, scryptSync } from 'node:crypt
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
+import { createForumApi } from './forum.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, '..');
@@ -19,6 +20,32 @@ const seedPath = fileURLToPath(new URL('../database/seed.json', import.meta.url)
 
 const placeColumns = `id, name, place_type, source_group, parent_id, campus_area, location_note, map_x, map_y, longitude, latitude, coordinate_source, location_status, source_label, verification_status, last_confirmed_at`;
 const recommendationColumns = `id, place_id, name, floor, note, shop, meal_period, source_label, verification_status, rating, rating_count, tags`;
+
+function adaptDatabaseClient(database) {
+  if (database && typeof database.execute === 'function') return database;
+  if (!database || typeof database.prepare !== 'function') {
+    throw new TypeError('database client requires execute or prepare');
+  }
+  return {
+    async execute(query) {
+      const sql = typeof query === 'string' ? query : query.sql;
+      const args = typeof query === 'string' ? [] : (query.args || []);
+      const statement = database.prepare(sql);
+      if (/^\s*(SELECT|PRAGMA|WITH)\b/i.test(sql) || /\bRETURNING\b/i.test(sql)) {
+        return { rows: statement.all(...args), rowsAffected: 0 };
+      }
+      const result = statement.run(...args);
+      return {
+        rows: [],
+        rowsAffected: Number(result.changes) || 0,
+        lastInsertRowid: Number(result.lastInsertRowid) || 0,
+      };
+    },
+    async executeMultiple(sql) {
+      database.exec(sql);
+    },
+  };
+}
 
 function sendJson(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -89,9 +116,10 @@ function verifyPassword(password, hash) {
   }
 }
 
-export function createApp(client) {
-  const adminUsername = process.env.ADMIN_USERNAME ?? 'jintianchishenme';
-  const adminPassword = process.env.ADMIN_PASSWORD ?? 'helloworld';
+export function createApp(client, options = {}) {
+  client = adaptDatabaseClient(client);
+  const adminUsername = options.adminUsername ?? process.env.ADMIN_USERNAME ?? 'jintianchishenme';
+  const adminPassword = options.adminPassword ?? process.env.ADMIN_PASSWORD ?? 'helloworld';
  
   const sessionTtlMs = 8 * 60 * 60 * 1000;
   const sameSecret = (left, right) => {
@@ -109,9 +137,12 @@ export function createApp(client) {
       if (!base64 || !hmac) return null;
       // 验证签名是否正确
       const expected = createHmac('sha256', sessionSecret).update(base64).digest('base64url');
-      if (hmac !== expected) return null;
+      const hmacBuffer = Buffer.from(hmac);
+      const expectedBuffer = Buffer.from(expected);
+      if (hmacBuffer.length !== expectedBuffer.length || !timingSafeEqual(hmacBuffer, expectedBuffer)) return null;
       // 解析出用户信息
       const data = JSON.parse(Buffer.from(base64, 'base64url').toString());
+      if (!data.exp || Number(data.exp) < Date.now()) return null;
       return { token, username: data.username, userId: data.userId, role: data.role };
     } catch {
       return null;
@@ -133,6 +164,8 @@ export function createApp(client) {
 
   const validFeedbackTypes = new Set(['还在这里', '位置有误', '名称有误', '楼层入口错误', '菜品信息有误', '营业时间有误', '暂停营业', '新增位置', '其他']);
 
+  const forumApi = createForumApi({ client, sessionFor, readJsonBody, sendJson });
+
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -145,7 +178,7 @@ export function createApp(client) {
         if (!sameSecret(body.username || '', adminUsername) || !sameSecret(body.password || '', adminPassword)) {
           return sendJson(response, 401, { error: 'invalid_credentials', message: '管理员账号或密码不正确' });
         }
-        const payload = Buffer.from(JSON.stringify({ username: adminUsername, exp: Date.now() + sessionTtlMs })).toString('base64url');
+        const payload = Buffer.from(JSON.stringify({ username: adminUsername, role: 'admin', exp: Date.now() + sessionTtlMs })).toString('base64url');
         const hmac = createHmac('sha256', sessionSecret).update(payload).digest('base64url');
         const token = `${payload}.${hmac}`;
         return sendJson(response, 200, { token, user: { username: adminUsername, role: 'admin' }, expiresIn: sessionTtlMs / 1000 });
@@ -181,6 +214,11 @@ export function createApp(client) {
         
         return sendJson(response, 200, { token: `${payload}.${hmac}`, user: { username: user.username, nickname: user.nickname } });
       }
+      if (path.startsWith('/api/forum/') || path.startsWith('/api/admin/forum/')) {
+        const handled = await forumApi.handle(request, response, url);
+        if (handled !== false) return;
+      }
+
       if (path.startsWith('/api/admin/')) {
         const session = sessionFor(request);
         if (!session) return sendJson(response, 401, { error: 'unauthorized', message: '请先以管理员身份登录' });
@@ -274,13 +312,30 @@ export function createApp(client) {
           const b = await readJsonBody(request);
           const status = b.decision === 'approve' ? '已批准' : b.decision === 'reject' ? '已驳回' : '';
           await client.execute({ sql: `UPDATE feedback SET review_status = ?, review_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE tracking_code = ? AND review_status = '待审核'`, args: [status, b.reviewNote, code] });
-          return sendJson(response, 200, { ok: true });
+          return sendJson(response, 200, {
+            ok: true,
+            feedback: { trackingCode: code, status, reviewNote: b.reviewNote, reviewedAt: new Date().toISOString() },
+          });
         }
         return sendJson(response, 404, { error: 'not_found' });
       }
 
       if (request.method === 'GET' && path === '/api/places') {
         return sendJson(response, 200, { places: await getAllPlacesWithRecs() });
+      }
+
+      if (request.method === 'GET' && path.startsWith('/api/places/')) {
+        let id;
+        try {
+          id = decodeURIComponent(path.slice('/api/places/'.length));
+        } catch {
+          return sendJson(response, 400, { error: 'invalid_id' });
+        }
+        if (!id) return sendJson(response, 400, { error: 'invalid_id' });
+        const places = await getAllPlacesWithRecs();
+        const place = places.find(item => item.id === id);
+        if (!place) return sendJson(response, 404, { error: 'place_not_found' });
+        return sendJson(response, 200, { place });
       }
 
       if (request.method === 'POST' && path === '/api/rate') {
@@ -308,6 +363,9 @@ export function createApp(client) {
 
       if (request.method === 'POST' && path === '/api/feedbacks') {
         const b = await readJsonBody(request);
+        if (!validFeedbackTypes.has(b.feedbackType) || !String(b.details || '').trim()) {
+          return sendJson(response, 400, { error: 'invalid_feedback', message: '反馈类型或内容无效' });
+        }
         const trackingCode = createTrackingCode();
         await client.execute({ sql: `INSERT INTO feedback (tracking_code, place_id, proposed_place_name, feedback_type, details, proposed_payload) VALUES (?, ?, ?, ?, ?, ?)`, args: [trackingCode, b.placeId, b.proposedPlaceName, b.feedbackType, b.details, b.proposedPayload ? JSON.stringify(b.proposedPayload) : null] });
         return sendJson(response, 201, { feedback: { trackingCode, status: '待审核' } });
@@ -325,6 +383,12 @@ export function createApp(client) {
       if (path === '/' || path === '/index.html') { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return response.end(readFileSync(pagePath)); }
       if (path === '/app.js') { response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }); return response.end(readFileSync(scriptPath)); }
       if (path === '/database/seed.json') { response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(readFileSync(seedPath)); }
+
+      if (['/forum.js', '/agent.js', '/forum.css', '/agent.css'].includes(path)) {
+        const filePath = join(projectRoot, path.slice(1));
+        response.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath).toLowerCase()] || 'application/octet-stream' });
+        return response.end(readFileSync(filePath));
+      }
 
       if (path.startsWith('/libs/') || path.startsWith('/data/')) {
         const filePath = join(projectRoot, path);

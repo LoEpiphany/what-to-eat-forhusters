@@ -3823,6 +3823,7 @@
     </div>
     <div class="admin-tabs">
       <button class="admin-tab active" data-admin-tab="feedbacks">反馈审核</button>
+      <button class="admin-tab" data-admin-tab="forum">论坛审核</button>
       <button class="admin-tab" data-admin-tab="places">店铺管理</button>
       <button class="admin-tab" data-admin-tab="dishes">菜品管理</button>
       <button id="admin-logout-btn" class="admin-tab admin-logout" style="margin-left:auto">退出登录</button>
@@ -3841,6 +3842,19 @@
         <div class="empty">请从左侧选择一条反馈。</div>
       </aside>
     </div>
+    </div>
+    <!-- 论坛审核 -->
+    <div id="admin-tab-forum" class="admin-tab-panel">
+      <div class="admin-management">
+        <div class="admin-manage-toolbar">
+          <button class="choice" data-forum-admin-filter="pending" aria-pressed="true">待处理举报</button>
+          <button class="choice" data-forum-admin-filter="all" aria-pressed="false">全部举报</button>
+          <button id="forum-admin-refresh" class="secondary">刷新</button>
+        </div>
+        <div id="forum-admin-reports" class="forum-admin-reports">
+          <div class="empty">切换到论坛审核后可读取举报记录。</div>
+        </div>
+      </div>
     </div>
     <!-- 店铺管理 -->
     <div id="admin-tab-places" class="admin-tab-panel">

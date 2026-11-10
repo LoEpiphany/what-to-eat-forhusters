@@ -1904,6 +1904,7 @@ function switchAdminTab(tabName) {
   });
   if (tabName === 'places') loadAdminPlaces();
   if (tabName === 'dishes') loadAdminDishes();
+  if (tabName === 'forum') window.loadForumAdminReports?.();
 }
 
 // ====== 管理员：店铺管理 ======

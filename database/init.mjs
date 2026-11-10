@@ -119,6 +119,72 @@ export default async function init(client) {
       // ===== 6. 强行补全光谷世界城的楼层与店铺名（最终终极精确版） =====
   console.log('正在检查并修复世界城的楼层与店铺...');
 
+  // ===== 7. Forum system users and initial content =====
+  const forumUsers = [
+    ['forum-campus-guide', 'forum_system_guide', '校园向导'],
+    ['forum-food-reviewer', 'forum_system_reviewer', '食堂观察员'],
+    ['forum-life-helper', 'forum_system_life', '生活委员'],
+  ];
+  for (const [id, username, nickname] of forumUsers) {
+    await client.execute({
+      sql: `INSERT INTO users (id, username, password_hash, nickname)
+            VALUES (?, ?, 'disabled:disabled', ?) ON CONFLICT(id) DO NOTHING`,
+      args: [id, username, nickname],
+    });
+  }
+
+  const forumPostCount = (await client.execute('SELECT COUNT(*) AS count FROM forum_posts')).rows[0].count;
+  if (Number(forumPostCount) === 0) {
+    const initialPosts = [
+      {
+        id: 'forum-welcome-001',
+        userId: 'forum-campus-guide',
+        category: 'campus',
+        title: '校园论坛正式开放，请从一条真实分享开始',
+        content: '这里可以交流食堂测评、拼饭邀约、求推荐和校园生活信息。发帖和评论需要登录，所有内容会同步保存在服务端。\n\n请尽量写清时间、地点、价格和真实体验；尊重不同口味，也请勿发布个人隐私或未经核实的信息。',
+        location: '华中科技大学',
+        tags: ['新手指南', '社区公约'],
+        pinned: 1,
+        createdAt: "datetime('now', '-30 minutes')",
+      },
+      {
+        id: 'forum-review-001',
+        userId: 'forum-food-reviewer',
+        category: 'review',
+        title: '最近在东一食堂发现了哪些值得复购的菜？',
+        content: '欢迎把最近吃到的窗口、菜品、价格和排队时间写在评论里。比起一句“好吃”，具体口味和份量更能帮助其他同学做决定。',
+        location: '东一食堂',
+        tags: ['东一食堂', '食堂测评'],
+        pinned: 0,
+        createdAt: "datetime('now', '-5 hours')",
+      },
+      {
+        id: 'forum-ask-001',
+        userId: 'forum-life-helper',
+        category: 'ask',
+        title: '求一份适合赶晚课的快餐清单',
+        content: '最近晚课前时间比较紧，希望找 15 分钟内能吃完、预算 15 元左右的校内选择。东边和中区都可以，欢迎分享真实体验。',
+        location: '东区',
+        tags: ['求推荐', '快餐', '晚课'],
+        pinned: 0,
+        createdAt: "datetime('now', '-9 hours')",
+      },
+    ];
+    for (const post of initialPosts) {
+      await client.execute({
+        sql: `INSERT INTO forum_posts
+              (id, user_id, category, title, content, location, tags, pinned, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${post.createdAt}, ${post.createdAt})`,
+        args: [post.id, post.userId, post.category, post.title, post.content, post.location, JSON.stringify(post.tags), post.pinned],
+      });
+    }
+    await client.execute({
+      sql: `INSERT INTO forum_comments (id, post_id, user_id, content, created_at)
+            VALUES (?, ?, ?, ?, datetime('now', '-2 hours'))`,
+      args: ['forum-comment-welcome-001', 'forum-welcome-001', 'forum-life-helper', '收到！期待大家在论坛里分享真实、有用的校园信息。'],
+    });
+  }
+
   const fixMap = {
         // -1 楼 (烧饼部落 & 寿司郎)
     '土掉渣猪肉烧饼': { shop: '烧饼部落', floor: null },

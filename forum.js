@@ -1,7 +1,6 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'hustmap-forum-posts-v1';
   const CATEGORIES = [
     { id: 'all', label: '全部讨论', short: '全部' },
     { id: 'review', label: '食堂测评', short: '测评' },
@@ -12,14 +11,30 @@
   ];
   const CATEGORY_MAP = new Map(CATEGORIES.map(category => [category.id, category]));
   const AVATAR_COLORS = ['#c85b42', '#5d7d72', '#ba8746', '#8b6c8e', '#47728a', '#82645a'];
+  const REPORT_REASONS = [
+    ['spam', '垃圾广告或刷屏'],
+    ['harassment', '攻击、辱骂或骚扰'],
+    ['misinformation', '明显不实信息'],
+    ['privacy', '泄露个人隐私'],
+    ['other', '其他问题'],
+  ];
 
   const state = {
     category: 'all',
     query: '',
     sort: 'latest',
     posts: [],
-    activePostId: null,
+    stats: { topics: 0, replies: 0, members: 0, categories: {} },
+    pagination: { page: 1, pages: 1, total: 0, limit: 20 },
+    loading: false,
+    activePost: null,
+    comments: [],
     composerCategory: 'review',
+    editingPost: null,
+    reportTarget: null,
+    adminReportFilter: 'pending',
+    searchTimer: null,
+    refreshTimer: null,
   };
 
   function escapeHtml(value) {
@@ -32,140 +47,6 @@
     })[character]);
   }
 
-  function hoursAgo(hours) {
-    return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  }
-
-  function seedPosts() {
-    return [
-      {
-        id: 'forum-seed-east-1',
-        category: 'review',
-        title: '东一二楼的糖醋里脊，最近是不是偷偷升级了？',
-        content: '今天中午特意错峰去试了一下，外皮比之前更脆，糖醋汁也没有原来那么甜了。配一份青菜刚刚好，12 元左右能吃得很满足。\n\n窗口阿姨说最近换了一个师傅，大家如果也吃过，来交流一下口感有没有变化。个人建议 12:20 之后去，排队会短很多。',
-        author: { name: '小满不吃香菜', level: '校园食客' },
-        createdAt: hoursAgo(2),
-        location: '东一食堂 · 2F',
-        tags: ['东一食堂', '糖醋里脊', '实测'],
-        likes: 42,
-        liked: false,
-        bookmarked: false,
-        pinned: true,
-        comments: [
-          { id: 'c-east-1', author: '梧桐树下', content: '昨天也吃了，确实比上学期好！不过米饭稍微有点硬。', createdAt: hoursAgo(1.5) },
-          { id: 'c-east-2', author: '今天吃什么', content: '请问是几号窗口呀？明天想去试试。', createdAt: hoursAgo(.7) },
-        ],
-      },
-      {
-        id: 'forum-seed-partner-1',
-        category: 'partner',
-        title: '周三晚课拼个火锅，还差两位',
-        content: '周三 18:00 下课，想去光谷世界城吃火锅。目前两个女生，口味都能吃辣，预计人均 70 左右，吃完可以一起坐地铁回学校。\n\n希望是不鸽、好沟通的同学，有兴趣可以在评论里说一下校区和下课时间。',
-        author: { name: '晚风汽水', level: '活跃搭子' },
-        createdAt: hoursAgo(4),
-        location: '光谷世界城',
-        tags: ['拼饭', '火锅', '周三'],
-        likes: 18,
-        liked: false,
-        bookmarked: false,
-        pinned: false,
-        comments: [
-          { id: 'c-partner-1', author: '我要吃饱', content: '西十二下课，18:10 左右可以到，还缺人吗？', createdAt: hoursAgo(2.8) },
-        ],
-      },
-      {
-        id: 'forum-seed-ask-1',
-        category: 'ask',
-        title: '求推荐：适合四人安静聊天的校内餐厅',
-        content: '小组讨论完想一起吃顿饭，最好人均 40 以内、不用排太久，环境安静一点。东边和中间区域都可以，求大家最近的真实体验，广告菜名也欢迎！',
-        author: { name: '图书馆常驻民', level: '新同学' },
-        createdAt: hoursAgo(7),
-        location: '校本部',
-        tags: ['求推荐', '四人聚餐', '安静'],
-        likes: 27,
-        liked: false,
-        bookmarked: false,
-        pinned: false,
-        comments: [
-          { id: 'c-ask-1', author: '百景园侦察员', content: '百景园三楼角落那几家可以，晚一点去人少，人均差不多 30-40。', createdAt: hoursAgo(5.4) },
-          { id: 'c-ask-2', author: '饭搭子一号', content: '推荐东边 CBD 的简餐店，桌子间距比食堂大。', createdAt: hoursAgo(3.2) },
-          { id: 'c-ask-3', author: '小满不吃香菜', content: '如果接受校门口，泛悦城可选的更多，也不吵。', createdAt: hoursAgo(1.1) },
-        ],
-      },
-      {
-        id: 'forum-seed-campus-1',
-        category: 'campus',
-        title: '收集一份「错峰吃饭时间表」，大家来补全',
-        content: '最近在整理各食堂相对不排队的时间，先分享自己的体感：\n\n东一 11:10 前、12:25 后；西一 12:15 后人明显少；百景园三楼 12:00 左右反而比一楼快。\n\n欢迎大家补充，我会把评论整理成一份共享版。',
-        author: { name: '饭点观察员', level: '生活委员' },
-        createdAt: hoursAgo(11),
-        location: '全校',
-        tags: ['错峰', '食堂攻略', '共享'],
-        likes: 76,
-        liked: false,
-        bookmarked: false,
-        pinned: false,
-        comments: [
-          { id: 'c-campus-1', author: '西边干饭人', content: '西二 17:35 前几乎不排队，18:00 之后人会突然变多。', createdAt: hoursAgo(8.5) },
-          { id: 'c-campus-2', author: '小绿', content: '韵苑食堂二楼 11:25 左右最挤，可以避开。', createdAt: hoursAgo(6) },
-        ],
-      },
-      {
-        id: 'forum-seed-market-1',
-        category: 'market',
-        title: '出一张闲置校园餐券，今晚到期',
-        content: '多买了一张学校餐厅的餐券，20 元出，今天 21:00 前可以在东区当面交易。不是食品，只是一张餐券，介意勿拍。',
-        author: { name: '橙子同学', level: '普通用户' },
-        createdAt: hoursAgo(1),
-        location: '东区',
-        tags: ['闲置', '东区', '面交'],
-        likes: 6,
-        liked: false,
-        bookmarked: false,
-        pinned: false,
-        comments: [],
-      },
-      {
-        id: 'forum-seed-review-2',
-        category: 'review',
-        title: '避雷提醒：这家新开的麻辣香锅酱料偏咸',
-        content: '新店尝鲜记录。香味很足，但默认酱料比较咸，建议点单时让师傅少放酱。加份土豆和藕片比较划算，荤菜量一般。\n\n仅代表这次体验，欢迎吃过其他菜的同学补充。',
-        author: { name: '干饭不排队', level: '校园食客' },
-        createdAt: hoursAgo(17),
-        location: '东边 CBD · 2F',
-        tags: ['麻辣香锅', '口味提醒', '东边'],
-        likes: 31,
-        liked: false,
-        bookmarked: false,
-        pinned: false,
-        comments: [
-          { id: 'c-review-1', author: '微辣选手', content: '同感，微辣也很咸。下次准备备注酱料减半。', createdAt: hoursAgo(13) },
-        ],
-      },
-    ];
-  }
-
-  function loadPosts() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-      if (Array.isArray(saved) && saved.length) return saved;
-    } catch (error) {
-      console.warn('论坛本地数据读取失败，将使用初始内容。', error);
-    }
-    const seeded = seedPosts();
-    persistPosts(seeded);
-    return seeded;
-  }
-
-  function persistPosts(posts = state.posts) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
-    } catch (error) {
-      console.warn('论坛本地数据保存失败。', error);
-      showToast('浏览器存储空间不足，本次修改可能无法保留');
-    }
-  }
-
   function currentUser() {
     try {
       const info = JSON.parse(localStorage.getItem('hustmap-user-info') || 'null');
@@ -174,10 +55,62 @@
       return {
         name: info.nickname || info.username || '校园用户',
         username: info.username || '',
+        token,
       };
     } catch {
       return null;
     }
+  }
+
+  async function apiRequest(path, { method = 'GET', body = null, auth = false, admin = false, signal = null } = {}) {
+    const user = currentUser();
+    if (auth && !user) {
+      const error = new Error('请先登录后再参与论坛互动');
+      error.code = 'login_required';
+      throw error;
+    }
+    const headers = {};
+    if (body !== null) headers['Content-Type'] = 'application/json';
+    if (admin) {
+      const adminToken = localStorage.getItem('hustmap-admin-token');
+      if (!adminToken) {
+        const error = new Error('请先登录管理员后台');
+        error.code = 'admin_login_required';
+        throw error;
+      }
+      headers.Authorization = `Bearer ${adminToken}`;
+    } else if (user?.token) {
+      headers.Authorization = `Bearer ${user.token}`;
+    }
+    let response;
+    try {
+      response = await fetch(new URL(path, document.baseURI), {
+        method,
+        headers,
+        body: body === null ? undefined : JSON.stringify(body),
+        cache: 'no-store',
+        signal: signal || undefined,
+      });
+    } catch (error) {
+      if (error.name === 'AbortError') throw error;
+      const unavailable = new Error('论坛服务暂时不可用，请确认后端服务已经启动');
+      unavailable.code = 'forum_unavailable';
+      throw unavailable;
+    }
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error('论坛服务返回了无法识别的数据');
+    }
+    if (!response.ok) {
+      const error = new Error(data.message || data.error || '论坛请求失败');
+      error.status = response.status;
+      error.code = data.error;
+      if (response.status === 401) error.code = 'login_required';
+      throw error;
+    }
+    return data;
   }
 
   function avatarColor(name) {
@@ -190,8 +123,16 @@
     return [...cleaned].slice(-2).join('') || '同学';
   }
 
+  function parseServerDate(value) {
+    if (!value) return new Date();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(value)) {
+      return new Date(`${value.replace(' ', 'T')}Z`);
+    }
+    return new Date(value);
+  }
+
   function timeLabel(value) {
-    const timestamp = new Date(value).getTime();
+    const timestamp = parseServerDate(value).getTime();
     const delta = Math.max(0, Date.now() - timestamp);
     const minute = 60 * 1000;
     const hour = 60 * minute;
@@ -200,7 +141,7 @@
     if (delta < hour) return `${Math.floor(delta / minute)} 分钟前`;
     if (delta < day) return `${Math.floor(delta / hour)} 小时前`;
     if (delta < 7 * day) return `${Math.floor(delta / day)} 天前`;
-    return new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    return parseServerDate(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   }
 
   function categoryLabel(id) {
@@ -211,129 +152,87 @@
     return CATEGORY_MAP.get(id)?.short || '讨论';
   }
 
-  function totalComments() {
-    return state.posts.reduce((sum, post) => sum + (post.comments?.length || 0), 0);
-  }
-
-  function contributorCount() {
-    const names = new Set();
-    state.posts.forEach(post => {
-      if (post.author?.name) names.add(post.author.name);
-      (post.comments || []).forEach(comment => names.add(comment.author));
-    });
-    return names.size;
-  }
-
-  function filteredPosts() {
-    const query = state.query.trim().toLowerCase();
-    const posts = state.posts.filter(post => {
-      if (state.category !== 'all' && post.category !== state.category) return false;
-      if (!query) return true;
-      return [post.title, post.content, post.author?.name, post.location, ...(post.tags || [])]
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
-    });
-
-    return posts.sort((a, b) => {
-      if (state.sort === 'hot') {
-        const scoreA = (a.likes || 0) * 2 + (a.comments?.length || 0) * 4;
-        const scoreB = (b.likes || 0) * 2 + (b.comments?.length || 0) * 4;
-        if (scoreA !== scoreB) return scoreB - scoreA;
-      }
-      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
+  function commentCount(post) {
+    return Number(post.commentCount) || 0;
   }
 
   function renderPage() {
     const host = document.getElementById('forum');
-    if (!host || host.dataset.ready === 'true') {
-      renderForum();
-      return;
-    }
-
-    host.dataset.ready = 'true';
-    host.innerHTML = `
-      <div class="forum-shell">
-        <section class="forum-hero" aria-labelledby="forum-title">
-          <div class="forum-hero-copy">
-            <span class="forum-kicker">HUST CAMPUS COMMONS</span>
-            <h1 id="forum-title">一起聊聊，<span>今天吃什么。</span></h1>
-            <p>真实测评、拼饭邀约、校园生活互助。把踩过的坑和挖到的宝留在这里，让每一次选择都有同学的经验作参考。</p>
-            <div class="forum-hero-actions">
-              <button class="forum-button forum-button-primary" id="forum-new-post" type="button">
-                <span aria-hidden="true">＋</span> 发布新帖子
-              </button>
-              <button class="forum-button forum-button-soft" id="forum-browse-hot" type="button">看看今日热议 →</button>
+    if (!host) return;
+    if (!host.dataset.ready) {
+      host.dataset.ready = 'true';
+      host.innerHTML = `
+        <div class="forum-shell">
+          <section class="forum-hero" aria-labelledby="forum-title">
+            <div class="forum-hero-copy">
+              <span class="forum-kicker">HUST CAMPUS COMMONS</span>
+              <h1 id="forum-title">一起聊聊，<span>今天吃什么。</span></h1>
+              <p>真实测评、拼饭邀约、校园生活互助。帖子、评论、点赞和收藏都会同步到服务端，和同学们共享同一份校园讨论。</p>
+              <div class="forum-hero-actions">
+                <button class="forum-button forum-button-primary" id="forum-new-post" type="button">
+                  <span aria-hidden="true">＋</span> 发布新帖子
+                </button>
+                <button class="forum-button forum-button-soft" id="forum-browse-hot" type="button">看看今日热议 →</button>
+              </div>
             </div>
-          </div>
-          <div class="forum-hero-side">
-            <div class="forum-live-card" aria-label="论坛社区数据">
-              <div><b id="forum-stat-topics">0</b><span>讨论中</span></div>
-              <div><b id="forum-stat-replies">0</b><span>条回应</span></div>
-              <div><b id="forum-stat-members">0</b><span>位同学</span></div>
+            <div class="forum-hero-side">
+              <div class="forum-live-card" aria-label="论坛社区数据">
+                <div><b id="forum-stat-topics">0</b><span>讨论中</span></div>
+                <div><b id="forum-stat-replies">0</b><span>条回应</span></div>
+                <div><b id="forum-stat-members">0</b><span>位同学</span></div>
+              </div>
+              <p class="forum-live-note"><span class="forum-live-dot" aria-hidden="true"></span> 服务端实时数据 · 每 30 秒自动刷新</p>
             </div>
-            <p class="forum-live-note"><span class="forum-live-dot" aria-hidden="true"></span> 社区正在交流，分享你的第一手体验</p>
-          </div>
-        </section>
+          </section>
 
-        <div class="forum-layout">
-          <main class="forum-main">
-            <section class="forum-toolbar" aria-label="帖子筛选与搜索">
-              <div class="forum-channels" id="forum-channels" role="tablist" aria-label="论坛频道"></div>
-              <div class="forum-query-row">
-                <label class="forum-search">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
-                  <input id="forum-search" type="search" placeholder="搜索帖子、食堂、菜品或话题" autocomplete="off" aria-label="搜索论坛帖子">
-                </label>
-                <div class="forum-sort" role="tablist" aria-label="帖子排序">
-                  <button type="button" role="tab" data-forum-sort="latest" aria-selected="true">最新</button>
-                  <button type="button" role="tab" data-forum-sort="hot" aria-selected="false">热议</button>
+          <div class="forum-layout">
+            <main class="forum-main">
+              <section class="forum-toolbar" aria-label="帖子筛选与搜索">
+                <div class="forum-channels" id="forum-channels" role="tablist" aria-label="论坛频道"></div>
+                <div class="forum-query-row">
+                  <label class="forum-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
+                    <input id="forum-search" type="search" placeholder="搜索帖子、食堂、菜品或话题" autocomplete="off" aria-label="搜索论坛帖子">
+                  </label>
+                  <div class="forum-sort" role="tablist" aria-label="帖子排序">
+                    <button type="button" role="tab" data-forum-sort="latest" aria-selected="true">最新</button>
+                    <button type="button" role="tab" data-forum-sort="hot" aria-selected="false">热议</button>
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
 
-            <div class="forum-feed-head">
-              <div>
-                <h2 id="forum-feed-title">校园新鲜事</h2>
-                <p id="forum-feed-subtitle">来自同学们的即时分享</p>
+              <div class="forum-feed-head">
+                <div>
+                  <h2 id="forum-feed-title">校园新鲜事</h2>
+                  <p id="forum-feed-subtitle">来自同学们的服务端实时分享</p>
+                </div>
+                <span class="forum-feed-count" id="forum-feed-count">正在连接论坛…</span>
               </div>
-              <span class="forum-feed-count" id="forum-feed-count"></span>
-            </div>
-            <div class="forum-feed" id="forum-feed" aria-live="polite"></div>
-          </main>
+              <div class="forum-feed" id="forum-feed" aria-live="polite"></div>
+            </main>
 
-          <aside class="forum-sidebar" aria-label="论坛辅助信息">
-            <section class="forum-side-card forum-profile-card" id="forum-profile-card"></section>
-            <section class="forum-side-card">
-              <div class="forum-side-title"><h2>今日热议</h2><span>HOT NOW</span></div>
-              <div class="forum-topic-list" id="forum-trending"></div>
-            </section>
-            <section class="forum-side-card">
-              <div class="forum-side-title"><h2>友好交流小贴士</h2><span>COMMUNITY</span></div>
-              <ol class="forum-guideline-list">
-                <li><b>1</b><span>真实分享，尽量写明食堂、时间和价格。</span></li>
-                <li><b>2</b><span>观点可以不同，尊重每一位同学。</span></li>
-                <li><b>3</b><span>线下交易注意安全，建议校内公共区域面交。</span></li>
-              </ol>
-            </section>
-          </aside>
+            <aside class="forum-sidebar" aria-label="论坛辅助信息">
+              <section class="forum-side-card forum-profile-card" id="forum-profile-card"></section>
+              <section class="forum-side-card">
+                <div class="forum-side-title"><h2>今日热议</h2><span>HOT NOW</span></div>
+                <div class="forum-topic-list" id="forum-trending"></div>
+              </section>
+              <section class="forum-side-card">
+                <div class="forum-side-title"><h2>友好交流小贴士</h2><span>COMMUNITY</span></div>
+                <ol class="forum-guideline-list">
+                  <li><b>1</b><span>真实分享，尽量写明食堂、时间和价格。</span></li>
+                  <li><b>2</b><span>观点可以不同，尊重每一位同学。</span></li>
+                  <li><b>3</b><span>遇到广告、骚扰或隐私内容可以举报。</span></li>
+                </ol>
+              </section>
+            </aside>
+          </div>
         </div>
-      </div>
-    `;
-
-    bindPageEvents();
-    renderForum();
-  }
-
-  function renderForum() {
-    if (!document.getElementById('forum-feed')) return;
-    renderStats();
-    renderChannels();
+      `;
+      bindPageEvents();
+    }
     renderProfile();
-    renderTrending();
-    renderFeed();
+    loadFeed();
   }
 
   function renderStats() {
@@ -341,26 +240,20 @@
       const element = document.getElementById(id);
       if (element) element.textContent = value;
     };
-    setText('forum-stat-topics', state.posts.length);
-    setText('forum-stat-replies', totalComments());
-    setText('forum-stat-members', contributorCount());
+    setText('forum-stat-topics', state.stats.topics || 0);
+    setText('forum-stat-replies', state.stats.replies || 0);
+    setText('forum-stat-members', state.stats.members || 0);
   }
 
   function renderChannels() {
     const host = document.getElementById('forum-channels');
     if (!host) return;
     host.innerHTML = CATEGORIES.map(category => {
-      const count = category.id === 'all'
-        ? state.posts.length
-        : state.posts.filter(post => post.category === category.id).length;
+      const count = Number(state.stats.categories?.[category.id]) || 0;
       return `
-        <button
-          class="forum-channel"
-          type="button"
-          role="tab"
-          data-forum-category="${category.id}"
-          aria-selected="${state.category === category.id}"
-        >${category.label}<span class="forum-channel-count">${count}</span></button>
+        <button class="forum-channel" type="button" role="tab" data-forum-category="${category.id}" aria-selected="${state.category === category.id}">
+          ${category.label}<span class="forum-channel-count">${count}</span>
+        </button>
       `;
     }).join('');
   }
@@ -373,18 +266,18 @@
       host.innerHTML = `
         <div class="forum-profile-row">
           <span class="forum-avatar" style="--avatar-bg:${avatarColor(user.name)}">${escapeHtml(initials(user.name))}</span>
-          <div><strong>${escapeHtml(user.name)}</strong><span>华科校园社区成员</span></div>
+          <div><strong>${escapeHtml(user.name)}</strong><span>已登录 · 内容同步到服务端</span></div>
         </div>
-        <p>有新的食堂发现，或者想找同学一起吃饭？把想法分享给社区吧。</p>
+        <p>发布真实体验、参与评论，或者发起一次拼饭邀约。你的内容会出现在所有同学的论坛中。</p>
         <button class="forum-button" type="button" data-forum-compose>写一条新帖子</button>
       `;
     } else {
       host.innerHTML = `
         <div class="forum-profile-row">
           <span class="forum-avatar" style="--avatar-bg:#c85b42">访</span>
-          <div><strong>欢迎来到校园论坛</strong><span>登录后参与发帖和评论</span></div>
+          <div><strong>欢迎来到校园论坛</strong><span>登录后可以发帖、评论和收藏</span></div>
         </div>
-        <p>加入同学之间的真实交流，收藏喜欢的帖子，也可以留下自己的食堂体验。</p>
+        <p>浏览无需登录。参与互动请先登录，服务端会校验你的真实账号身份。</p>
         <button class="forum-button" type="button" data-forum-login>登录 / 注册</button>
       `;
     }
@@ -394,30 +287,24 @@
     const host = document.getElementById('forum-trending');
     if (!host) return;
     const trending = [...state.posts]
-      .sort((a, b) => ((b.likes || 0) * 2 + (b.comments?.length || 0) * 4) - ((a.likes || 0) * 2 + (a.comments?.length || 0) * 4))
+      .sort((a, b) => (b.likes * 2 + commentCount(b) * 4) - (a.likes * 2 + commentCount(a) * 4))
       .slice(0, 4);
-    host.innerHTML = trending.map((post, index) => `
+    host.innerHTML = trending.length ? trending.map((post, index) => `
       <button class="forum-topic" type="button" data-forum-topic="${escapeHtml(post.title)}">
         <span class="forum-topic-index">0${index + 1}</span>
         <b>${escapeHtml(post.title)}</b>
-        <small>${post.comments?.length || 0} 回复</small>
+        <small>${commentCount(post)} 回复</small>
       </button>
-    `).join('');
+    `).join('') : '<p class="small">暂无热门讨论</p>';
   }
 
   function postMarkup(post) {
     return `
-      <article
-        class="forum-post"
-        tabindex="0"
-        data-post-id="${escapeHtml(post.id)}"
-        data-pinned="${Boolean(post.pinned)}"
-        aria-label="查看帖子：${escapeHtml(post.title)}"
-      >
+      <article class="forum-post" tabindex="0" data-post-id="${escapeHtml(post.id)}" data-pinned="${Boolean(post.pinned)}" aria-label="查看帖子：${escapeHtml(post.title)}">
         <div class="forum-post-top">
           <span class="forum-avatar" style="--avatar-bg:${avatarColor(post.author?.name)}">${escapeHtml(initials(post.author?.name))}</span>
           <div class="forum-post-author">
-            <strong>${escapeHtml(post.author?.name || '校园同学')}<span class="forum-author-badge">${escapeHtml(post.author?.level || '校园食客')}</span></strong>
+            <strong>${escapeHtml(post.author?.name || '校园同学')}<span class="forum-author-badge">${escapeHtml(post.author?.level || '校园社区成员')}</span></strong>
             <span>${post.pinned ? '置顶 · ' : ''}${timeLabel(post.createdAt)}</span>
           </div>
           <span class="forum-category">${escapeHtml(categoryShortLabel(post.category))}</span>
@@ -430,9 +317,9 @@
             <svg data-heart-icon viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.7a5.5 5.5 0 0 0-7.8 0L12 5.8l-1.1-1.1a5.5 5.5 0 1 0-7.8 7.8L12 21l8.8-8.5a5.5 5.5 0 0 0 0-7.8Z"></path></svg>
             ${post.likes || 0}
           </button>
-          <button class="forum-post-action" type="button" data-forum-action="comment" aria-label="查看 ${post.comments?.length || 0} 条评论">
+          <button class="forum-post-action" type="button" data-forum-action="comment" aria-label="查看 ${commentCount(post)} 条评论">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path></svg>
-            ${post.comments?.length || 0}
+            ${commentCount(post)}
           </button>
           <button class="forum-post-action" type="button" data-forum-action="bookmark" aria-pressed="${Boolean(post.bookmarked)}" aria-label="${post.bookmarked ? '取消收藏' : '收藏帖子'}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4Z"></path></svg>
@@ -450,66 +337,111 @@
     const title = document.getElementById('forum-feed-title');
     const subtitle = document.getElementById('forum-feed-subtitle');
     if (!feed) return;
-
-    const posts = filteredPosts();
     if (title) title.textContent = state.category === 'all' ? '校园新鲜事' : categoryLabel(state.category);
-    if (subtitle) subtitle.textContent = state.query ? `正在搜索“${state.query}”` : '来自同学们的即时分享';
-    if (count) count.textContent = `共 ${posts.length} 条讨论`;
+    if (subtitle) subtitle.textContent = state.query ? `正在搜索“${state.query}”` : '来自同学们的服务端实时分享';
+    if (count) count.textContent = `共 ${state.pagination.total || 0} 条讨论`;
 
-    if (!posts.length) {
+    if (!state.posts.length) {
       feed.innerHTML = `
         <div class="forum-empty">
           <span class="forum-empty-icon" aria-hidden="true">⌕</span>
-          <h3>还没有找到相关讨论</h3>
-          <p>换个关键词，或者成为第一个分享的人。</p>
+          <h3>${state.query ? '还没有找到相关讨论' : '这个频道还没有帖子'}</h3>
+          <p>${state.query ? '换个关键词，或者成为第一个分享的人。' : '发布第一条帖子，让同学们看到你的真实分享。'}</p>
           <button class="forum-button forum-button-primary" type="button" data-forum-compose>发布第一帖</button>
         </div>
       `;
       return;
     }
-    feed.innerHTML = posts.map(postMarkup).join('');
+    feed.innerHTML = `${state.posts.map(postMarkup).join('')}
+      ${state.pagination.page < state.pagination.pages ? '<button class="forum-load-more" type="button" data-forum-load-more>加载更多讨论</button>' : ''}`;
+  }
+
+  async function loadFeed({ append = false, silent = false } = {}) {
+    if (state.loading) return;
+    state.loading = true;
+    const feed = document.getElementById('forum-feed');
+    if (!append && !silent && feed) {
+      feed.innerHTML = '<div class="forum-loading"><span></span><span></span><span></span><p>正在读取论坛内容…</p></div>';
+    }
+    const page = append ? state.pagination.page + 1 : 1;
+    const params = new URLSearchParams({
+      category: state.category,
+      sort: state.sort,
+      page: String(page),
+      limit: '20',
+    });
+    if (state.query) params.set('search', state.query);
+    try {
+      const data = await apiRequest(`./api/forum/posts?${params}`);
+      state.posts = append ? [...state.posts, ...data.posts] : data.posts;
+      state.stats = data.stats || state.stats;
+      state.pagination = data.pagination || state.pagination;
+      renderStats();
+      renderChannels();
+      renderTrending();
+      renderFeed();
+    } catch (error) {
+      if (silent) return;
+      if (feed) {
+        feed.innerHTML = `
+          <div class="forum-empty">
+            <span class="forum-empty-icon" aria-hidden="true">!</span>
+            <h3>论坛服务暂时不可用</h3>
+            <p>${escapeHtml(error.message)}</p>
+            <button class="forum-button forum-button-primary" type="button" data-forum-retry>重新连接</button>
+          </div>
+        `;
+      }
+      const count = document.getElementById('forum-feed-count');
+      if (count) count.textContent = '连接失败';
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  function resetFeed() {
+    state.pagination.page = 1;
+    loadFeed();
   }
 
   function bindPageEvents() {
     document.getElementById('forum-channels')?.addEventListener('click', event => {
       const button = event.target.closest('[data-forum-category]');
-      if (!button) return;
+      if (!button || state.loading) return;
       state.category = button.dataset.forumCategory;
-      renderForum();
+      renderChannels();
+      resetFeed();
     });
 
     document.getElementById('forum-search')?.addEventListener('input', event => {
-      state.query = event.target.value;
-      renderFeed();
+      clearTimeout(state.searchTimer);
+      state.searchTimer = setTimeout(() => {
+        state.query = event.target.value.trim();
+        resetFeed();
+      }, 300);
     });
 
     document.querySelector('.forum-sort')?.addEventListener('click', event => {
       const button = event.target.closest('[data-forum-sort]');
-      if (!button) return;
+      if (!button || state.loading) return;
       state.sort = button.dataset.forumSort;
-      document.querySelectorAll('[data-forum-sort]').forEach(item => {
-        item.setAttribute('aria-selected', String(item === button));
-      });
-      renderFeed();
+      document.querySelectorAll('[data-forum-sort]').forEach(item => item.setAttribute('aria-selected', String(item === button)));
+      resetFeed();
     });
 
     document.getElementById('forum-feed')?.addEventListener('click', event => {
-      const compose = event.target.closest('[data-forum-compose]');
-      if (compose) {
-        event.stopPropagation();
-        openComposer();
-        return;
-      }
+      if (event.target.closest('[data-forum-compose]')) return openComposer();
+      if (event.target.closest('[data-forum-retry]')) return loadFeed();
+      if (event.target.closest('[data-forum-load-more]')) return loadFeed({ append: true });
       const action = event.target.closest('[data-forum-action]');
-      const post = event.target.closest('[data-post-id]');
-      if (!post) return;
-      const id = post.dataset.postId;
+      const postElement = event.target.closest('[data-post-id]');
+      if (!postElement) return;
       if (action) {
         event.stopPropagation();
-        handlePostAction(id, action.dataset.forumAction);
+        handlePostAction(postElement.dataset.postId, action.dataset.forumAction);
         return;
       }
-      openThread(id);
+      openThread(postElement.dataset.postId);
     });
 
     document.getElementById('forum-feed')?.addEventListener('keydown', event => {
@@ -526,12 +458,10 @@
       state.category = 'all';
       state.query = '';
       state.sort = 'hot';
-      renderForum();
       const search = document.getElementById('forum-search');
       if (search) search.value = '';
-      document.querySelectorAll('[data-forum-sort]').forEach(button => {
-        button.setAttribute('aria-selected', String(button.dataset.forumSort === 'hot'));
-      });
+      document.querySelectorAll('[data-forum-sort]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.forumSort === 'hot')));
+      resetFeed();
       document.querySelector('.forum-feed-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
@@ -546,49 +476,51 @@
       state.category = 'all';
       state.query = button.dataset.forumTopic;
       state.sort = 'hot';
-      renderForum();
       const search = document.getElementById('forum-search');
       if (search) search.value = state.query;
-      document.querySelectorAll('[data-forum-sort]').forEach(item => {
-        item.setAttribute('aria-selected', String(item.dataset.forumSort === 'hot'));
-      });
-      document.querySelector('.forum-feed-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelectorAll('[data-forum-sort]').forEach(item => item.setAttribute('aria-selected', String(item.dataset.forumSort === 'hot')));
+      resetFeed();
     });
   }
 
-  function handlePostAction(id, action) {
+  async function handlePostAction(id, action) {
+    if (action === 'comment') return openThread(id, true);
     const post = state.posts.find(item => item.id === id);
     if (!post) return;
-    if (action === 'like') {
-      post.liked = !post.liked;
-      post.likes = Math.max(0, (post.likes || 0) + (post.liked ? 1 : -1));
-      persistPosts();
-      renderForum();
-      if (state.activePostId === id) renderThread(post);
-      return;
+    if (!currentUser()) return requestLogin('登录后即可点赞和收藏帖子');
+    try {
+      if (action === 'like') {
+        const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(id)}/like`, { method: 'POST', auth: true });
+        updatePostState(id, { liked: data.liked, likes: data.likes });
+      } else if (action === 'bookmark') {
+        const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(id)}/bookmark`, { method: 'POST', auth: true });
+        updatePostState(id, { bookmarked: data.bookmarked, bookmarkCount: data.bookmarks });
+        showToast(data.bookmarked ? '已收藏这篇帖子' : '已取消收藏');
+      }
+    } catch (error) {
+      handleActionError(error);
     }
-    if (action === 'bookmark') {
-      post.bookmarked = !post.bookmarked;
-      persistPosts();
-      renderForum();
-      showToast(post.bookmarked ? '已收藏这篇帖子' : '已取消收藏');
-      if (state.activePostId === id) renderThread(post);
-      return;
-    }
-    if (action === 'comment') openThread(id, true);
+  }
+
+  function updatePostState(id, patch) {
+    const post = state.posts.find(item => item.id === id);
+    if (post) Object.assign(post, patch);
+    if (state.activePost?.id === id) Object.assign(state.activePost, patch);
+    renderFeed();
+    renderTrending();
+    if (state.activePost?.id === id) renderThread();
   }
 
   function ensureComposer() {
     let backdrop = document.getElementById('forum-compose-backdrop');
     if (backdrop) return backdrop;
-
     document.body.insertAdjacentHTML('beforeend', `
       <div class="forum-modal-backdrop" id="forum-compose-backdrop" hidden>
         <section class="forum-compose-dialog" role="dialog" aria-modal="true" aria-labelledby="forum-compose-title">
           <header class="forum-dialog-head">
             <div>
               <h2 id="forum-compose-title">分享一件校园新鲜事</h2>
-              <p>真实、具体、友善的内容，更容易得到同学们回应。</p>
+              <p>内容会同步到服务端，发布后所有同学都可以看到。</p>
             </div>
             <button class="forum-icon-button" type="button" data-forum-close-compose aria-label="关闭发帖窗口">×</button>
           </header>
@@ -596,28 +528,26 @@
             <div class="forum-form-row">
               <label class="forum-form-field">
                 <span>发布到频道</span>
-                <select name="category">
-                  ${CATEGORIES.filter(category => category.id !== 'all').map(category => `<option value="${category.id}">${category.label}</option>`).join('')}
-                </select>
+                <select name="category">${CATEGORIES.filter(category => category.id !== 'all').map(category => `<option value="${category.id}">${category.label}</option>`).join('')}</select>
               </label>
               <label class="forum-form-field">
                 <span>地点 <small>选填</small></span>
-                <input name="location" maxlength="30" placeholder="例如：东一食堂 · 2F">
+                <input name="location" maxlength="80" placeholder="例如：东一食堂 · 2F">
               </label>
             </div>
             <label class="forum-form-field">
-              <span>帖子标题 <small><b data-forum-title-count>0</b>/50</small></span>
-              <input name="title" required minlength="4" maxlength="50" placeholder="一句话说清楚你想聊什么">
+              <span>帖子标题 <small><b data-forum-title-count>0</b>/80</small></span>
+              <input name="title" required minlength="4" maxlength="80" placeholder="一句话说清楚你想聊什么">
             </label>
             <label class="forum-form-field">
-              <span>正文内容 <small><b data-forum-content-count>0</b>/800</small></span>
-              <textarea name="content" required minlength="10" maxlength="800" placeholder="补充具体时间、价格、口味或你的真实感受…"></textarea>
+              <span>正文内容 <small><b data-forum-content-count>0</b>/3000</small></span>
+              <textarea name="content" required minlength="10" maxlength="3000" placeholder="补充具体时间、价格、口味或你的真实感受…"></textarea>
             </label>
             <label class="forum-form-field">
-              <span>话题标签 <small>用中英文逗号分隔，最多 4 个</small></span>
-              <input name="tags" maxlength="80" placeholder="例如：东一食堂, 人均15, 求搭子">
+              <span>话题标签 <small>用中英文逗号分隔，最多 5 个</small></span>
+              <input name="tags" maxlength="120" placeholder="例如：东一食堂, 人均15, 求搭子">
             </label>
-            <p class="forum-form-note">帖子会先保存在当前浏览器中。后端论坛接口接入后，可将本页存储层替换为服务端请求。</p>
+            <p class="forum-form-note">发帖需要登录。内容会经过服务端身份校验并写入论坛数据库，请勿发布隐私信息。</p>
             <div class="forum-form-actions">
               <button class="forum-button" type="button" data-forum-close-compose>取消</button>
               <button class="forum-button forum-button-primary" type="submit">发布帖子</button>
@@ -626,10 +556,8 @@
         </section>
       </div>
     `);
-
     backdrop = document.getElementById('forum-compose-backdrop');
     const form = document.getElementById('forum-compose-form');
-    form.elements.category.value = state.composerCategory;
     form.elements.title.addEventListener('input', event => {
       form.querySelector('[data-forum-title-count]').textContent = event.target.value.length;
     });
@@ -643,83 +571,74 @@
     return backdrop;
   }
 
-  function openComposer(category = state.category) {
-    if (!currentUser()) {
-      requestLogin('登录后即可发布帖子');
-      return;
-    }
-    state.composerCategory = category !== 'all' ? category : 'review';
+  function openComposer(post = null, category = state.category) {
+    if (!currentUser()) return requestLogin('登录后即可发布帖子');
+    state.editingPost = post;
+    state.composerCategory = post?.category || (category !== 'all' ? category : 'review');
     const backdrop = ensureComposer();
     const form = document.getElementById('forum-compose-form');
     form.reset();
     form.elements.category.value = state.composerCategory;
-    form.querySelector('[data-forum-title-count]').textContent = '0';
-    form.querySelector('[data-forum-content-count]').textContent = '0';
+    form.elements.title.value = post?.title || '';
+    form.elements.content.value = post?.content || '';
+    form.elements.location.value = post?.location || '';
+    form.elements.tags.value = (post?.tags || []).join(', ');
+    form.querySelector('[data-forum-title-count]').textContent = String(post?.title?.length || 0);
+    form.querySelector('[data-forum-content-count]').textContent = String(post?.content?.length || 0);
+    document.getElementById('forum-compose-title').textContent = post ? '编辑帖子' : '分享一件校园新鲜事';
+    form.querySelector('button[type="submit"]').textContent = post ? '保存修改' : '发布帖子';
     backdrop.hidden = false;
     document.body.classList.add('forum-modal-open');
     setTimeout(() => form.elements.title.focus(), 30);
   }
 
   function closeComposer() {
-    const backdrop = document.getElementById('forum-compose-backdrop');
-    if (!backdrop) return;
-    backdrop.hidden = true;
-    if (document.getElementById('forum-thread-backdrop')?.hidden !== false) {
-      document.body.classList.remove('forum-modal-open');
-    }
+    document.getElementById('forum-compose-backdrop').hidden = true;
+    state.editingPost = null;
+    if (document.getElementById('forum-thread-backdrop')?.hidden !== false) document.body.classList.remove('forum-modal-open');
   }
 
-  function submitPost(event) {
+  async function submitPost(event) {
     event.preventDefault();
-    const user = currentUser();
-    if (!user) {
-      closeComposer();
-      requestLogin('登录状态已失效，请重新登录');
-      return;
-    }
     const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
     const data = new FormData(form);
-    const title = String(data.get('title') || '').trim();
-    const content = String(data.get('content') || '').trim();
-    if (title.length < 4 || content.length < 10) {
+    const payload = {
+      category: String(data.get('category') || ''),
+      title: String(data.get('title') || '').trim(),
+      content: String(data.get('content') || '').trim(),
+      location: String(data.get('location') || '').trim(),
+      tags: String(data.get('tags') || '').split(/[,，]/).map(tag => tag.trim()).filter(Boolean).slice(0, 5),
+    };
+    if (payload.title.length < 4 || payload.content.length < 10) {
       showToast('标题至少 4 个字，正文至少 10 个字');
       return;
     }
-    const tags = String(data.get('tags') || '')
-      .split(/[,，]/)
-      .map(tag => tag.trim().replace(/^#/, ''))
-      .filter(Boolean)
-      .slice(0, 4);
-    const category = CATEGORY_MAP.has(data.get('category')) ? data.get('category') : 'campus';
-    const post = {
-      id: `forum-local-${Date.now()}`,
-      category,
-      title,
-      content,
-      location: String(data.get('location') || '').trim() || '校园',
-      tags,
-      author: { name: user.name, level: '校园社区成员' },
-      createdAt: new Date().toISOString(),
-      likes: 0,
-      liked: false,
-      bookmarked: false,
-      pinned: false,
-      comments: [],
-      local: true,
-    };
-    state.posts.unshift(post);
-    persistPosts();
-    closeComposer();
-    state.category = category;
-    state.query = '';
-    state.sort = 'latest';
-    const search = document.getElementById('forum-search');
-    if (search) search.value = '';
-    document.querySelectorAll('[data-forum-sort]').forEach(button => {
-      button.setAttribute('aria-selected', String(button.dataset.forumSort === 'latest'));
-    });
-    renderForum();
-    showToast('帖子发布成功');
+    button.disabled = true;
+    button.textContent = state.editingPost ? '保存中…' : '发布中…';
+    try {
+      const editingId = state.editingPost?.id;
+      if (editingId) {
+        await apiRequest(`./api/forum/posts/${encodeURIComponent(editingId)}`, { method: 'PATCH', body: payload, auth: true });
+      } else {
+        await apiRequest('./api/forum/posts', { method: 'POST', body: payload, auth: true });
+      }
+      closeComposer();
+      state.category = payload.category;
+      state.query = '';
+      state.sort = 'latest';
+      const search = document.getElementById('forum-search');
+      if (search) search.value = '';
+      document.querySelectorAll('[data-forum-sort]').forEach(item => item.setAttribute('aria-selected', String(item.dataset.forumSort === 'latest')));
+      await loadFeed();
+      if (editingId && state.activePost?.id === editingId) await openThread(editingId);
+      showToast(editingId ? '帖子已更新' : '帖子发布成功');
+    } catch (error) {
+      handleActionError(error);
+    } finally {
+      button.disabled = false;
+      button.textContent = state.editingPost ? '保存修改' : '发布帖子';
+    }
   }
 
   function ensureThreadDrawer() {
@@ -745,43 +664,42 @@
     return backdrop;
   }
 
-  function openThread(id, focusComment = false) {
-    const post = state.posts.find(item => item.id === id);
-    if (!post) return;
+  async function openThread(id, focusComment = false) {
     const backdrop = ensureThreadDrawer();
-    state.activePostId = id;
-    renderThread(post);
     backdrop.hidden = false;
     document.body.classList.add('forum-modal-open');
-    setTimeout(() => {
-      if (focusComment) {
-        document.getElementById('forum-comment-input')?.focus();
-      } else {
-        backdrop.querySelector('[data-forum-close-thread]')?.focus();
-      }
-    }, 30);
-  }
-
-  function closeThread() {
-    const backdrop = document.getElementById('forum-thread-backdrop');
-    if (!backdrop) return;
-    backdrop.hidden = true;
-    state.activePostId = null;
-    if (document.getElementById('forum-compose-backdrop')?.hidden !== false) {
-      document.body.classList.remove('forum-modal-open');
+    const body = document.getElementById('forum-thread-body');
+    body.innerHTML = '<div class="forum-loading"><span></span><span></span><span></span><p>正在读取帖子和评论…</p></div>';
+    try {
+      const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(id)}`);
+      state.activePost = data.post;
+      state.comments = data.comments;
+      renderThread();
+      if (focusComment) setTimeout(() => document.getElementById('forum-comment-input')?.focus(), 30);
+      else setTimeout(() => backdrop.querySelector('[data-forum-close-thread]')?.focus(), 30);
+    } catch (error) {
+      body.innerHTML = `<div class="forum-empty"><span class="forum-empty-icon">!</span><h3>无法打开帖子</h3><p>${escapeHtml(error.message)}</p></div>`;
     }
   }
 
-  function renderThread(post) {
+  function closeThread() {
+    document.getElementById('forum-thread-backdrop').hidden = true;
+    state.activePost = null;
+    state.comments = [];
+    if (document.getElementById('forum-compose-backdrop')?.hidden !== false) document.body.classList.remove('forum-modal-open');
+  }
+
+  function renderThread() {
     const host = document.getElementById('forum-thread-body');
-    if (!host) return;
-    const comments = post.comments || [];
+    const post = state.activePost;
+    if (!host || !post) return;
+    const user = currentUser();
     host.innerHTML = `
       <article class="forum-thread">
         <div class="forum-post-top">
           <span class="forum-avatar" style="--avatar-bg:${avatarColor(post.author?.name)}">${escapeHtml(initials(post.author?.name))}</span>
           <div class="forum-post-author">
-            <strong>${escapeHtml(post.author?.name || '校园同学')}<span class="forum-author-badge">${escapeHtml(post.author?.level || '校园食客')}</span></strong>
+            <strong>${escapeHtml(post.author?.name || '校园同学')}<span class="forum-author-badge">${escapeHtml(post.author?.level || '校园社区成员')}</span></strong>
             <span>${timeLabel(post.createdAt)} · ${escapeHtml(post.location || '校园')}</span>
           </div>
           <span class="forum-category">${escapeHtml(categoryLabel(post.category))}</span>
@@ -803,80 +721,220 @@
             分享
           </button>
         </div>
+        <div class="forum-thread-management">
+          ${post.isOwner || post.canModerate ? '<button type="button" data-thread-action="edit">编辑帖子</button><button type="button" class="danger" data-thread-action="delete-post">删除帖子</button>' : ''}
+          ${!post.isOwner ? '<button type="button" data-thread-action="report-post">举报帖子</button>' : ''}
+        </div>
         <div class="forum-comments-head">
           <h3>同学回应</h3>
-          <span>${comments.length} 条评论</span>
+          <span>${state.comments.length} 条评论</span>
         </div>
         <div class="forum-comment-list">
-          ${comments.length ? comments.map(commentMarkup).join('') : '<div class="forum-comment-empty">还没有同学回应，来说说你的看法吧。</div>'}
+          ${state.comments.length ? state.comments.map(commentMarkup).join('') : '<div class="forum-comment-empty">还没有同学回应，来说说你的看法吧。</div>'}
         </div>
-        <form class="forum-comment-form" id="forum-comment-form">
-          <textarea id="forum-comment-input" name="comment" required maxlength="300" placeholder="友善交流，分享你的真实体验…" aria-label="写下评论"></textarea>
-          <button class="forum-button forum-button-primary" type="submit">发送</button>
-        </form>
+        ${user ? `
+          <form class="forum-comment-form" id="forum-comment-form">
+            <textarea id="forum-comment-input" name="comment" required maxlength="1000" placeholder="友善交流，分享你的真实体验…" aria-label="写下评论"></textarea>
+            <button class="forum-button forum-button-primary" type="submit">发送</button>
+          </form>
+        ` : '<button class="forum-login-inline" type="button" data-thread-action="login">登录后参与评论</button>'}
       </article>
     `;
   }
 
   function commentMarkup(comment) {
     return `
-      <div class="forum-comment">
-        <span class="forum-avatar" style="--avatar-bg:${avatarColor(comment.author)}">${escapeHtml(initials(comment.author))}</span>
+      <div class="forum-comment" data-comment-id="${escapeHtml(comment.id)}">
+        <span class="forum-avatar" style="--avatar-bg:${avatarColor(comment.author?.name)}">${escapeHtml(initials(comment.author?.name))}</span>
         <div>
-          <div class="forum-comment-head"><b>${escapeHtml(comment.author)}</b><span>${timeLabel(comment.createdAt)}</span></div>
+          <div class="forum-comment-head">
+            <b>${escapeHtml(comment.author?.name)}</b><span>${timeLabel(comment.createdAt)}</span>
+            <div class="forum-comment-actions">
+              <button type="button" data-comment-action="like" aria-pressed="${Boolean(comment.liked)}">赞 ${comment.likes || 0}</button>
+              ${comment.isOwner || comment.canModerate ? '<button type="button" data-comment-action="delete">删除</button>' : ''}
+              ${!comment.isOwner ? '<button type="button" data-comment-action="report">举报</button>' : ''}
+            </div>
+          </div>
           <p>${escapeHtml(comment.content)}</p>
         </div>
       </div>
     `;
   }
 
-  function handleThreadClick(event) {
+  async function handleThreadClick(event) {
     const action = event.target.closest('[data-thread-action]');
-    if (!action || !state.activePostId) return;
-    const post = state.posts.find(item => item.id === state.activePostId);
+    const commentAction = event.target.closest('[data-comment-action]');
+    const post = state.activePost;
     if (!post) return;
-    if (action.dataset.threadAction === 'like') {
-      post.liked = !post.liked;
-      post.likes = Math.max(0, (post.likes || 0) + (post.liked ? 1 : -1));
-      persistPosts();
-      renderForum();
-      renderThread(post);
+    if (action) {
+      const type = action.dataset.threadAction;
+      if (type === 'login') return requestLogin();
+      if (type === 'edit') return openComposer(post);
+      if (type === 'share') return sharePost(post);
+      if (type === 'report-post') return openReportModal('post', post.id, post.title);
+      if (type === 'delete-post') return deleteActivePost();
+      if (!currentUser()) return requestLogin('登录后即可点赞和收藏帖子');
+      try {
+        if (type === 'like') {
+          const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(post.id)}/like`, { method: 'POST', auth: true });
+          updatePostState(post.id, { liked: data.liked, likes: data.likes });
+        }
+        if (type === 'bookmark') {
+          const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(post.id)}/bookmark`, { method: 'POST', auth: true });
+          updatePostState(post.id, { bookmarked: data.bookmarked, bookmarkCount: data.bookmarks });
+          showToast(data.bookmarked ? '已收藏这篇帖子' : '已取消收藏');
+        }
+      } catch (error) {
+        handleActionError(error);
+      }
     }
-    if (action.dataset.threadAction === 'bookmark') {
-      post.bookmarked = !post.bookmarked;
-      persistPosts();
-      renderForum();
-      renderThread(post);
-      showToast(post.bookmarked ? '已收藏这篇帖子' : '已取消收藏');
+    if (commentAction) {
+      const commentElement = commentAction.closest('[data-comment-id]');
+      const comment = state.comments.find(item => item.id === commentElement?.dataset.commentId);
+      if (!comment) return;
+      const type = commentAction.dataset.commentAction;
+      if (type === 'report') return openReportModal('comment', comment.id, comment.content);
+      if (!currentUser()) return requestLogin();
+      try {
+        if (type === 'like') {
+          const data = await apiRequest(`./api/forum/comments/${encodeURIComponent(comment.id)}/like`, { method: 'POST', auth: true });
+          comment.liked = data.liked;
+          comment.likes = data.likes;
+          renderThread();
+        }
+        if (type === 'delete') {
+          if (!confirm('确定删除这条评论吗？')) return;
+          await apiRequest(`./api/forum/comments/${encodeURIComponent(comment.id)}`, { method: 'DELETE', auth: true });
+          state.comments = state.comments.filter(item => item.id !== comment.id);
+          post.commentCount = Math.max(0, commentCount(post) - 1);
+          state.stats.replies = Math.max(0, Number(state.stats.replies || 0) - 1);
+          renderStats();
+          renderFeed();
+          renderThread();
+          showToast('评论已删除');
+        }
+      } catch (error) {
+        handleActionError(error);
+      }
     }
-    if (action.dataset.threadAction === 'share') sharePost(post);
   }
 
-  function handleThreadSubmit(event) {
+  async function handleThreadSubmit(event) {
     if (event.target.id !== 'forum-comment-form') return;
     event.preventDefault();
-    const user = currentUser();
-    if (!user) {
-      requestLogin('登录后即可参与评论');
-      return;
-    }
-    const post = state.posts.find(item => item.id === state.activePostId);
+    const post = state.activePost;
     if (!post) return;
-    const textarea = event.target.elements.comment;
+    const form = event.target;
+    const textarea = form.elements.comment;
     const content = textarea.value.trim();
     if (!content) return;
-    post.comments = post.comments || [];
-    post.comments.push({
-      id: `forum-comment-${Date.now()}`,
-      author: user.name,
-      content,
-      createdAt: new Date().toISOString(),
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    button.textContent = '发送中…';
+    try {
+      const data = await apiRequest(`./api/forum/posts/${encodeURIComponent(post.id)}/comments`, {
+        method: 'POST',
+        body: { content },
+        auth: true,
+      });
+      state.comments.push(data.comment);
+      post.commentCount = commentCount(post) + 1;
+      state.stats.replies = Number(state.stats.replies || 0) + 1;
+      renderStats();
+      renderFeed();
+      renderThread();
+      showToast('评论已同步到论坛');
+      setTimeout(() => document.getElementById('forum-comment-input')?.focus(), 20);
+    } catch (error) {
+      handleActionError(error);
+    } finally {
+      button.disabled = false;
+      button.textContent = '发送';
+    }
+  }
+
+  async function deleteActivePost() {
+    const post = state.activePost;
+    if (!post || !confirm('确定删除这篇帖子吗？删除后将从论坛下架。')) return;
+    try {
+      await apiRequest(`./api/forum/posts/${encodeURIComponent(post.id)}`, { method: 'DELETE', auth: true });
+      closeThread();
+      await loadFeed();
+      showToast('帖子已删除');
+    } catch (error) {
+      handleActionError(error);
+    }
+  }
+
+  function ensureReportModal() {
+    let backdrop = document.getElementById('forum-report-backdrop');
+    if (backdrop) return backdrop;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="forum-modal-backdrop" id="forum-report-backdrop" hidden>
+        <section class="forum-compose-dialog" role="dialog" aria-modal="true" aria-labelledby="forum-report-title">
+          <header class="forum-dialog-head">
+            <div><h2 id="forum-report-title">举报不当内容</h2><p>管理员会结合举报原因和内容进行审核。</p></div>
+            <button class="forum-icon-button" type="button" data-forum-close-report aria-label="关闭举报窗口">×</button>
+          </header>
+          <form class="forum-compose-form" id="forum-report-form">
+            <label class="forum-form-field"><span>举报原因</span><select name="reason">${REPORT_REASONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
+            <label class="forum-form-field"><span>补充说明 <small>选填</small></span><textarea name="details" maxlength="500" placeholder="请说明具体问题，帮助管理员判断…"></textarea></label>
+            <div class="forum-form-actions"><button class="forum-button" type="button" data-forum-close-report>取消</button><button class="forum-button forum-button-primary" type="submit">提交举报</button></div>
+          </form>
+        </section>
+      </div>
+    `);
+    backdrop = document.getElementById('forum-report-backdrop');
+    backdrop.addEventListener('click', event => {
+      if (event.target === backdrop || event.target.closest('[data-forum-close-report]')) closeReportModal();
     });
-    persistPosts();
-    renderForum();
-    renderThread(post);
-    setTimeout(() => document.getElementById('forum-comment-input')?.focus(), 20);
-    showToast('评论已发送');
+    document.getElementById('forum-report-form').addEventListener('submit', submitReport);
+    return backdrop;
+  }
+
+  function openReportModal(targetType, targetId, preview) {
+    if (!currentUser()) return requestLogin('登录后即可举报内容');
+    state.reportTarget = { targetType, targetId, preview };
+    const backdrop = ensureReportModal();
+    document.getElementById('forum-report-form').reset();
+    backdrop.hidden = false;
+    document.body.classList.add('forum-modal-open');
+    document.querySelector('#forum-report-form select')?.focus();
+  }
+
+  function closeReportModal() {
+    document.getElementById('forum-report-backdrop').hidden = true;
+    state.reportTarget = null;
+    if (document.getElementById('forum-thread-backdrop')?.hidden !== false) document.body.classList.remove('forum-modal-open');
+  }
+
+  async function submitReport(event) {
+    event.preventDefault();
+    if (!state.reportTarget) return;
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const data = new FormData(form);
+    button.disabled = true;
+    button.textContent = '提交中…';
+    try {
+      await apiRequest('./api/forum/reports', {
+        method: 'POST',
+        auth: true,
+        body: {
+          targetType: state.reportTarget.targetType,
+          targetId: state.reportTarget.targetId,
+          reason: data.get('reason'),
+          details: data.get('details'),
+        },
+      });
+      closeReportModal();
+      showToast('举报已提交，管理员会进行审核');
+    } catch (error) {
+      handleActionError(error);
+    } finally {
+      button.disabled = false;
+      button.textContent = '提交举报';
+    }
   }
 
   async function sharePost(post) {
@@ -886,26 +944,27 @@
       url: `${location.origin}${location.pathname}#forum`,
     };
     try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else if (navigator.clipboard?.writeText) {
+      if (navigator.share) await navigator.share(shareData);
+      else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareData.text);
         showToast('帖子信息已复制');
-      } else {
-        showToast('可从浏览器地址栏分享论坛');
-      }
+      } else showToast('可从浏览器地址栏分享论坛');
     } catch (error) {
       if (error.name !== 'AbortError') showToast('分享未完成');
     }
   }
 
-  function requestLogin(message) {
-    showToast(message || '登录后即可参与论坛互动');
-    if (typeof window.openUserModal === 'function') {
-      window.openUserModal();
-    } else {
-      showToast('请先在页面右上角登录');
+  function requestLogin(message = '登录后即可参与论坛互动') {
+    showToast(message);
+    if (typeof window.openUserModal === 'function') window.openUserModal();
+  }
+
+  function handleActionError(error) {
+    if (error.code === 'login_required' || error.status === 401 || error.status === 403) {
+      requestLogin(error.message || '请先登录');
+      return;
     }
+    showToast(error.message || '操作失败，请稍后重试');
   }
 
   function showToast(message) {
@@ -921,26 +980,129 @@
     showToast.timer = setTimeout(() => toast.classList.remove('show'), 2300);
   }
 
-  function handleEscape(event) {
-    if (event.key !== 'Escape') return;
-    if (!document.getElementById('forum-thread-backdrop')?.hidden) {
-      closeThread();
+  async function loadForumAdminReports() {
+    const host = document.getElementById('forum-admin-reports');
+    if (!host) return;
+    if (!localStorage.getItem('hustmap-admin-token')) {
+      host.innerHTML = '<div class="empty">请先登录管理员后台，再处理论坛举报。</div>';
       return;
     }
+    host.innerHTML = '<div class="forum-loading"><span></span><span></span><span></span><p>正在读取论坛举报…</p></div>';
+    try {
+      const data = await apiRequest(`./api/admin/forum/reports?status=${state.adminReportFilter}`, { admin: true });
+      renderForumAdminReports(data.reports || []);
+    } catch (error) {
+      host.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  function renderForumAdminReports(reports) {
+    const host = document.getElementById('forum-admin-reports');
+    if (!host) return;
+    if (!reports.length) {
+      host.innerHTML = `<div class="empty">${state.adminReportFilter === 'pending' ? '当前没有待处理的论坛举报。' : '暂无论坛举报记录。'}</div>`;
+      return;
+    }
+    host.innerHTML = reports.map(report => {
+      const reason = REPORT_REASONS.find(([value]) => value === report.reason)?.[1] || report.reason;
+      const targetType = report.target?.type === 'post' ? '帖子' : '评论';
+      return `
+        <article class="forum-report-card">
+          <div class="forum-report-card-head">
+            <span class="forum-report-reason">${escapeHtml(reason)}</span>
+            <span class="forum-report-status">${escapeHtml(report.status === 'pending' ? '待处理' : report.status === 'reviewed' ? '已处理' : '已忽略')}</span>
+            <time>${timeLabel(report.createdAt)}</time>
+          </div>
+          <h3>${escapeHtml(targetType)}：${escapeHtml(report.target?.title || '')}</h3>
+          <p>${escapeHtml(report.target?.content || '')}</p>
+          ${report.details ? `<div class="forum-report-details">举报说明：${escapeHtml(report.details)}</div>` : ''}
+          <div class="forum-report-meta">举报人：${escapeHtml(report.reporter?.name || '校园同学')}</div>
+          ${report.status === 'pending' ? `
+            <div class="forum-report-actions">
+              <button class="secondary" type="button" data-forum-report-review="${escapeHtml(report.id)}" data-forum-report-action="dismiss">忽略举报</button>
+              <button class="primary" type="button" data-forum-report-review="${escapeHtml(report.id)}" data-forum-report-action="hide_target">下架内容</button>
+            </div>
+          ` : ''}
+        </article>
+      `;
+    }).join('');
+  }
+
+  async function handleForumAdminAction(button) {
+    const reportId = button.dataset.forumReportReview;
+    const action = button.dataset.forumReportAction;
+    if (!reportId || !action) return;
+    if (action === 'hide_target' && !confirm('确定下架这条论坛内容吗？')) return;
+    button.disabled = true;
+    try {
+      await apiRequest(`./api/admin/forum/reports/${encodeURIComponent(reportId)}`, {
+        method: 'PATCH',
+        admin: true,
+        body: { action },
+      });
+      showToast(action === 'hide_target' ? '内容已下架' : '举报已忽略');
+      await loadForumAdminReports();
+    } catch (error) {
+      showToast(error.message);
+      button.disabled = false;
+    }
+  }
+
+  function bindForumAdminEvents() {
+    document.addEventListener('click', event => {
+      if (event.target.closest('[data-admin-tab="forum"]')) {
+        setTimeout(loadForumAdminReports, 0);
+      }
+      const filter = event.target.closest('[data-forum-admin-filter]');
+      if (filter) {
+        state.adminReportFilter = filter.dataset.forumAdminFilter;
+        document.querySelectorAll('[data-forum-admin-filter]').forEach(button => {
+          button.setAttribute('aria-pressed', String(button === filter));
+        });
+        loadForumAdminReports();
+      }
+      if (event.target.closest('#forum-admin-refresh')) loadForumAdminReports();
+      const action = event.target.closest('[data-forum-report-review]');
+      if (action) handleForumAdminAction(action);
+    });
+  }
+
+  function startAutoRefresh() {
+    clearInterval(state.refreshTimer);
+    state.refreshTimer = setInterval(() => {
+      if (
+        document.querySelector('.view.active')?.id === 'forum'
+        && document.visibilityState === 'visible'
+        && !state.loading
+        && document.getElementById('forum-compose-backdrop')?.hidden !== false
+        && document.getElementById('forum-thread-backdrop')?.hidden !== false
+        && document.getElementById('forum-report-backdrop')?.hidden !== false
+      ) {
+        loadFeed({ silent: true });
+      }
+    }, 30000);
+  }
+
+  function handleEscape(event) {
+    if (event.key !== 'Escape') return;
+    if (!document.getElementById('forum-report-backdrop')?.hidden) return closeReportModal();
+    if (!document.getElementById('forum-thread-backdrop')?.hidden) return closeThread();
     if (!document.getElementById('forum-compose-backdrop')?.hidden) closeComposer();
   }
 
-  state.posts = loadPosts();
   window.renderForumPage = renderPage;
+  window.loadForumAdminReports = loadForumAdminReports;
+  document.addEventListener('keydown', handleEscape);
+  bindForumAdminEvents();
+  window.addEventListener('hustmap:user-changed', () => {
+    renderProfile();
+    if (location.hash === '#forum') loadFeed({ silent: true });
+  });
+  document.addEventListener('DOMContentLoaded', startAutoRefresh, { once: true });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', renderPage, { once: true });
   } else {
     renderPage();
   }
-  document.addEventListener('keydown', handleEscape);
-  window.addEventListener('hustmap:user-changed', () => {
-    renderProfile();
-    if (location.hash === '#forum') renderForum();
-  });
 })();
