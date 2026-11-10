@@ -15,7 +15,8 @@ export default async function init(client) {
 
   await client.execute('PRAGMA foreign_keys = ON');
   await client.executeMultiple(readFileSync(join(directory, 'schema.sql'), 'utf8'));
-    // ===== 0. 创建普通用户表 =====
+
+  // ===== 0. 创建普通用户表 & 论坛表 =====
   await client.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -23,6 +24,32 @@ export default async function init(client) {
       password_hash TEXT NOT NULL,
       nickname TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 修复核心：补齐论坛相关表
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS forum_posts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      location TEXT,
+      tags TEXT,
+      pinned INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS forum_comments (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE
     )
   `);
 
@@ -113,13 +140,78 @@ export default async function init(client) {
     }
   }
 
-     // ===== 6. 强行补全光谷世界城丢失的店铺名（绝对精确版） =====
-  console.log('正在检查并自动分配世界城的店铺名...');
-  
-      // ===== 6. 强行补全光谷世界城的楼层与店铺名（最终终极精确版） =====
+  // ===== 6. 强行补全光谷世界城的楼层与店铺名 =====
   console.log('正在检查并修复世界城的楼层与店铺...');
+  const fixMap = {
+    '土掉渣猪肉烧饼': { shop: '烧饼部落', floor: null },
+    '土掉渣芝麻甜饼': { shop: '烧饼部落', floor: null },
+    '芝士榴莲烧饼': { shop: '烧饼部落', floor: null },
+    '三文鱼寿司': { shop: '寿司郎', floor: null },
+    '金枪鱼寿司': { shop: '寿司郎', floor: null },
+    '天妇罗拼盘': { shop: '寿司郎', floor: null },
+    '招牌干锅大王鸡': { shop: '小馋妮', floor: 2 },
+    '鸡虾双拼干锅': { shop: '小馋妮', floor: 2 },
+    '一锅两吃': { shop: '小馋妮', floor: 2 },
+    '面包诱惑': { shop: '绿茶', floor: 4 },
+    '绿茶烤鸡': { shop: '绿茶', floor: 4 },
+    '粉丝裹虾': { shop: '绿茶', floor: 4 },
+    '石锅鸡汤豆腐': { shop: '绿茶', floor: 4 },
+    '炙烧鹅肝寿司': { shop: '滨寿司', floor: 5 },
+    '茶碗蒸': { shop: '滨寿司', floor: 5 },
+    '虾三味寿司': { shop: '滨寿司', floor: 5 },
+    '蒲烧鳗鱼寿司': { shop: '滨寿司', floor: 5 },
+    '招牌肉蟹煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
+    '明虾煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
+    '鸡爪煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
+    '红糖糍粑': { shop: '胖哥俩肉蟹煲', floor: 5 },
+    '梅菜扣肉煲仔饭': { shop: '秀玉', floor: 5 },
+    '托斯卡纳风味海鲜锅': { shop: '秀玉', floor: 5 },
+    '扒澳洲西冷': { shop: '秀玉', floor: 5 },
+    '黑椒小龙虾意面': { shop: '秀玉', floor: 5 },
+    '招牌干贝鲜虾粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '白贝粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '膏蟹粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '黄油焗牙片鱼头': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '黄油焗贝贝南瓜': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '黄油焗梭子蟹': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '蒜蓉焗花甲': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '茄子年糕煲': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '盐焗手撕鸡': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '脆皮香酥鸭': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '豆豉鲮鱼油麦菜': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
+    '柴记辣子鸡': { shop: '柴记', floor: 5 },
+    '石锅髮菜豆腐': { shop: '柴记', floor: 5 },
+    '江湖坨坨虾': { shop: '柴记', floor: 5 },
+    '飞刀土豆片': { shop: '柴记', floor: 5 },
+    '铫子筒骨煨藕汤': { shop: '来菜', floor: 5 },
+    '三镇干煸藕丝': { shop: '来菜', floor: 5 },
+    '洪湖脆藕煎鲈鱼': { shop: '来菜', floor: 5 },
+    '烧椒皮蛋茄子': { shop: '来菜', floor: 5 },
+    '吊龙': { shop: '潮牛壹号火锅', floor: 5 },
+    '嫩肉': { shop: '潮牛壹号火锅', floor: 5 },
+    '手打牛肉丸': { shop: '潮牛壹号火锅', floor: 5 },
+    '潮牛原骨汤锅': { shop: '潮牛壹号火锅', floor: 5 },
+    '辣不怂招牌辣子鸡': { shop: '辣不怂', floor: 5 }
+  };
 
-  // ===== 7. Forum system users and initial content =====
+  let fixedCount = 0;
+  for (const [keyword, info] of Object.entries(fixMap)) {
+    const res = await client.execute({
+      sql: `UPDATE recommendations SET shop = ?, floor = ? WHERE name LIKE ? AND (shop IS NULL OR shop = '' OR shop = '其他店铺')`,
+      args: [info.shop, info.floor, `%${keyword}%`]
+    });
+    if (res.rowsAffected > 0) {
+      fixedCount += res.rowsAffected;
+    }
+  }
+  
+  if (fixedCount > 0) {
+    console.log(`✓ 成功自动修复 ${fixedCount} 道世界城菜品的楼层与店铺名！`);
+  } else {
+    console.log(`✓ 世界城数据已是最新，无需修复。`);
+  }
+
+  // ===== 7. 论坛初始内容 =====
   const forumUsers = [
     ['forum-campus-guide', 'forum_system_guide', '校园向导'],
     ['forum-food-reviewer', 'forum_system_reviewer', '食堂观察员'],
@@ -181,101 +273,9 @@ export default async function init(client) {
     await client.execute({
       sql: `INSERT INTO forum_comments (id, post_id, user_id, content, created_at)
             VALUES (?, ?, ?, ?, datetime('now', '-2 hours'))`,
-      args: ['forum-comment-welcome-001', 'forum-welcome-001', 'forum-life-helper', '收到！期待大家在论坛里分享真实、有用的校园信息。'],
+      args: ['forum-comment-welcome-001', 'forum-welcome-001', 'forum-life-helper', '收到！期待大家在论坛里真实分享、有用的校园信息。'],
     });
   }
 
-  const fixMap = {
-        // -1 楼 (烧饼部落 & 寿司郎)
-    '土掉渣猪肉烧饼': { shop: '烧饼部落', floor: null },
-    '土掉渣芝麻甜饼': { shop: '烧饼部落', floor: null },
-    '芝士榴莲烧饼': { shop: '烧饼部落', floor: null },
-    '三文鱼寿司': { shop: '寿司郎', floor: null },
-    '金枪鱼寿司': { shop: '寿司郎', floor: null },
-    '天妇罗拼盘': { shop: '寿司郎', floor: null },
-
-    // 2 楼 (小馋妮)
-    '招牌干锅大王鸡': { shop: '小馋妮', floor: 2 },
-    '鸡虾双拼干锅': { shop: '小馋妮', floor: 2 },
-    '一锅两吃': { shop: '小馋妮', floor: 2 },
-
-    // 4 楼 (绿茶)
-    '面包诱惑': { shop: '绿茶', floor: 4 },
-    '绿茶烤鸡': { shop: '绿茶', floor: 4 },
-    '粉丝裹虾': { shop: '绿茶', floor: 4 },
-    '石锅鸡汤豆腐': { shop: '绿茶', floor: 4 },
-
-    // 5 楼 (滨寿司)
-    '炙烧鹅肝寿司': { shop: '滨寿司', floor: 5 },
-    '茶碗蒸': { shop: '滨寿司', floor: 5 },
-    '虾三味寿司': { shop: '滨寿司', floor: 5 },
-    '蒲烧鳗鱼寿司': { shop: '滨寿司', floor: 5 },
-
-    // 5 楼 (胖哥俩)
-    '招牌肉蟹煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
-    '明虾煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
-    '鸡爪煲': { shop: '胖哥俩肉蟹煲', floor: 5 },
-    '红糖糍粑': { shop: '胖哥俩肉蟹煲', floor: 5 },
-
-    // 5 楼 (秀玉)
-    '梅菜扣肉煲仔饭': { shop: '秀玉', floor: 5 },
-    '托斯卡纳风味海鲜锅': { shop: '秀玉', floor: 5 },
-    '扒澳洲西冷': { shop: '秀玉', floor: 5 },
-    '黑椒小龙虾意面': { shop: '秀玉', floor: 5 },
-
-    // 5 楼 (浪小贝潮汕海鲜锅)
-    '招牌干贝鲜虾粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '白贝粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '膏蟹粥': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '黄油焗牙片鱼头': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '黄油焗贝贝南瓜': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '黄油焗梭子蟹': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '蒜蓉焗花甲': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '茄子年糕煲': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '盐焗手撕鸡': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '脆皮香酥鸭': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-    '豆豉鲮鱼油麦菜': { shop: '浪小贝潮汕海鲜锅', floor: 5 },
-
-    // 5 楼 (柴记)
-    '柴记辣子鸡': { shop: '柴记', floor: 5 },
-    '石锅髮菜豆腐': { shop: '柴记', floor: 5 },
-    '江湖坨坨虾': { shop: '柴记', floor: 5 },
-    '飞刀土豆片': { shop: '柴记', floor: 5 },
-
-    // 5 楼 (来菜)
-    '铫子筒骨煨藕汤': { shop: '来菜', floor: 5 },
-    '三镇干煸藕丝': { shop: '来菜', floor: 5 },
-    '洪湖脆藕煎鲈鱼': { shop: '来菜', floor: 5 },
-    '烧椒皮蛋茄子': { shop: '来菜', floor: 5 },
-
-    // 5 楼 (潮牛壹号火锅)
-    '吊龙': { shop: '潮牛壹号火锅', floor: 5 },
-    '嫩肉': { shop: '潮牛壹号火锅', floor: 5 },
-    '手打牛肉丸': { shop: '潮牛壹号火锅', floor: 5 },
-    '潮牛原骨汤锅': { shop: '潮牛壹号火锅', floor: 5 },
-
-    // 5 楼 (辣不怂)
-    '辣不怂招牌辣子鸡': { shop: '辣不怂', floor: 5 }
-  };
-
-  let fixedCount = 0;
-  for (const [keyword, info] of Object.entries(fixMap)) {
-    // 使用 LIKE 模糊匹配，强制覆盖楼层和店铺名，不放过任何带括号、斜杠的菜名
-        // 👇 加上了 AND 判断，只有原来没店铺或楼层不对时，才去更新
-    const res = await client.execute({
-      sql: `UPDATE recommendations SET shop = ?, floor = ? WHERE name LIKE ? AND (shop IS NULL OR shop = '' OR shop = '其他店铺')`,
-      args: [info.shop, info.floor, `%${keyword}%`]
-    });
-    if (res.rowsAffected > 0) {
-      fixedCount += res.rowsAffected;
-      console.log(`✓ 修复：${keyword} -> ${info.floor === -1 ? 'B1' : info.floor + '楼'} ${info.shop}`);
-    }
-  }
-  
-  if (fixedCount > 0) {
-    console.log(`✓ 成功自动修复 ${fixedCount} 道世界城菜品的楼层与店铺名！`);
-  } else {
-    console.log(`✓ 世界城数据已是最新，无需修复。`);
-  }
   console.log(`✓ 云端数据库检查完毕，成功注入 ${matchedCount} 种基础评分`);
 }
