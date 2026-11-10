@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="./forum.css">
   <link rel="stylesheet" href="./agent.css">
+  <link rel="stylesheet" href="./wheel.css">
   <title>华科觅食 · 今天吃什么</title>
 
   <style>
@@ -1909,6 +1910,7 @@
     <nav class="nav">
       <button class="ghost" data-go="home" aria-current="page">推荐首页</button>
       <button class="ghost forum-nav-link" data-go="forum">校园论坛</button>
+      <button class="ghost wheel-nav-link" data-go="wheel">美食转盘</button>
       <button class="ghost agent-nav-link" data-go="agent">智能推荐</button>
       <button class="ghost" data-go="admin">全部地点</button>
       <button class="ghost" data-go="dishes">美食图谱</button>
@@ -3961,6 +3963,7 @@
     </div>
   </section>
   <section id="forum" class="view" aria-labelledby="forum-title"></section>
+  <section id="wheel" class="view" aria-labelledby="wheel-title"></section>
   <section id="agent" class="view" aria-labelledby="agent-title"></section>
 </main>
 
@@ -3972,6 +3975,7 @@
 <script src="./libs/leaflet/leaflet.js"></script>
 <script src="./app.js" defer></script>
 <script src="./forum.js" defer></script>
+<script src="./wheel.js" defer></script>
 <script src="./agent.js" defer></script>
 <style>
   /* 强制将首页改为上下堆叠布局 */

@@ -123,6 +123,14 @@ test('地点列表和详情从 SQLite 返回，缺失地点返回 404', async ()
     assert.equal(script.status, 200);
     assert.match(await script.text(), /loadPlaces\(\)/);
 
+    const wheelScript = await fetch(`${base}/wheel.js`);
+    assert.equal(wheelScript.status, 200);
+    assert.match(await wheelScript.text(), /renderWheelPage/);
+
+    const wheelStyles = await fetch(`${base}/wheel.css`);
+    assert.equal(wheelStyles.status, 200);
+    assert.match(wheelStyles.headers.get('content-type'), /text\/css/);
+
     const seed = await fetch(`${base}/database/seed.json`);
     assert.equal(seed.status, 200);
     assert.ok((await seed.json()).places.length > 0);

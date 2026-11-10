@@ -775,6 +775,7 @@ function go(view, { resetScroll = true, updateHistory = true } = {}) {
   if (view === 'review') renderReview();
   if (view === 'dishes') renderDishes(); 
   if (view === 'forum') window.renderForumPage?.();
+  if (view === 'wheel') window.renderWheelPage?.();
   if (view === 'agent') window.renderAgentPage?.();
   if (view === 'home') {
     renderMap();
@@ -3364,11 +3365,11 @@ setupPage();
 updateAdminModeUI(); // 初始化管理员按钮状态
 const initialView = location.hash.slice(1);
 if (initialView === 'map') scrollToMap('auto');
-else if (['home', 'admin', 'feedback', 'review', 'forum', 'agent'].includes(initialView)) go(initialView, { updateHistory: false });
+else if (['home', 'admin', 'feedback', 'review', 'forum', 'wheel', 'agent'].includes(initialView)) go(initialView, { updateHistory: false });
 window.addEventListener('popstate', () => {
   const view = location.hash.slice(1);
   if (view === 'map') scrollToMap('auto');
-  else go(['home', 'results', 'detail', 'admin', 'feedback', 'review', 'forum', 'agent'].includes(view) ? view : 'home', { updateHistory: false });
+  else go(['home', 'results', 'detail', 'admin', 'feedback', 'review', 'forum', 'wheel', 'agent'].includes(view) ? view : 'home', { updateHistory: false });
 });
 loadPlaces();
 // ================= 管理员图谱编辑逻辑 =================

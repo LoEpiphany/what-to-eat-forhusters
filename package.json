@@ -7,7 +7,7 @@
     "start": "node server/server.mjs",
     "dev": "node server/server.mjs",
     "test": "node --test server/app.test.mjs server/forum.test.mjs",
-    "check": "node --check app.js && node --check forum.js && node --check agent.js && node --check server/app.mjs && node --check server/forum.mjs && node --check database/init.mjs"
+    "check": "node --check app.js && node --check forum.js && node --check wheel.js && node --check agent.js && node --check server/app.mjs && node --check server/forum.mjs && node --check database/init.mjs"
   },
   "engines": {
     "node": ">=24 <25"

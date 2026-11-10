@@ -384,7 +384,7 @@ export function createApp(client, options = {}) {
       if (path === '/app.js') { response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }); return response.end(readFileSync(scriptPath)); }
       if (path === '/database/seed.json') { response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(readFileSync(seedPath)); }
 
-      if (['/forum.js', '/agent.js', '/forum.css', '/agent.css'].includes(path)) {
+      if (['/forum.js', '/wheel.js', '/agent.js', '/forum.css', '/wheel.css', '/agent.css'].includes(path)) {
         const filePath = join(projectRoot, path.slice(1));
         response.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath).toLowerCase()] || 'application/octet-stream' });
         return response.end(readFileSync(filePath));
