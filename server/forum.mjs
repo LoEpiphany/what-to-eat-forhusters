@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const forumSchemaSql = readFileSync(new URL('../database/schema.sql', import.meta.url), 'utf8');
 
 const FORUM_CATEGORIES = new Set(['review', 'partner', 'ask', 'campus', 'market']);
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'privacy', 'other']);
@@ -153,6 +156,26 @@ function mapReport(row) {
 }
 
 export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
+  let schemaReady = false;
+  let schemaPromise = null;
+
+  async function ensureSchema() {
+    if (schemaReady) return;
+    if (!schemaPromise) {
+      schemaPromise = (async () => {
+        if (typeof client.executeMultiple !== 'function') {
+          throw new Error('数据库客户端不支持论坛自动迁移');
+        }
+        await client.executeMultiple(forumSchemaSql);
+        schemaReady = true;
+      })().catch(error => {
+        schemaPromise = null;
+        throw error;
+      });
+    }
+    await schemaPromise;
+  }
+
   function viewerFor(request) {
     const session = sessionFor(request);
     return {
@@ -597,6 +620,7 @@ export function createForumApi({ client, sessionFor, readJsonBody, sendJson }) {
   }
 
   async function handle(request, response, url) {
+    await ensureSchema();
     const { pathname: path } = url;
     if (path === '/api/forum/posts') {
       if (request.method === 'GET') return listPosts(request, response, url);

@@ -203,3 +203,28 @@ test('论坛支持服务端发帖、评论、点赞、收藏、举报与管理�
     database.close();
   }
 });
+
+test('论坛接口首次访问会自动补建缺失的数据库表', async () => {
+  const database = new DatabaseSync(':memory:');
+  const server = createApp(database, {
+    adminUsername: 'forum-admin',
+    adminPassword: 'forum-admin-password',
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const feed = await jsonRequest(`${base}/api/forum/posts`);
+    assert.equal(feed.response.status, 200);
+    assert.deepEqual(feed.body.posts, []);
+    assert.equal(feed.body.stats.topics, 0);
+
+    const table = database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'forum_posts'",
+    ).get();
+    assert.equal(table.name, 'forum_posts');
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    database.close();
+  }
+});
